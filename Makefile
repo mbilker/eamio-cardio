@@ -9,10 +9,10 @@ CFLAGS = -O2 -D_UNICODE
 
 SOURCES = drive_check.o window.o
 
-all: test_notif.exe eamio.dll eamio_bt5.dll
+all: test_hid.exe eamio.dll eamio_bt5.dll
 
-test_notif.exe: test_notif.o $(SOURCES)
-	$(CC) $(CFLAGS) -g -static -mconsole -mwindows -municode -o $@ $^
+test_hid.exe: test_hid.o hid.o $(SOURCES)
+	$(CC) $(CFLAGS) -g -static -mconsole -mwindows -municode -o $@ $^ -lsetupapi -lhid -lole32
 	$(STRIP) $@
 
 eamio.dll: eamio.o $(SOURCES)
