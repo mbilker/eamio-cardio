@@ -24,7 +24,7 @@ eamio_bt5.dll: eamio.c $(SOURCES)
 	$(STRIP) $@
 
 clean:
-	rm -f test_notif.exe eamio.dll *.o
+	rm -f test_notif.exe eamio.dll eamio_bt5.dll *.o
 
 %.o: %.cpp
 	$(CPP) -s -flto -Wall -c -o $@ $<
