@@ -16,36 +16,6 @@
 // GUID_DEVCLASS_HIDCLASS
 GUID hidclass_guid = { 0x745a17a0, 0x74d3, 0x11d0, { 0xb6, 0xfe, 0x00, 0xa0, 0xc9, 0x0f, 0x57, 0xda } };
 
-// include DEVPKEY_Device_BusReportedDeviceDesc from WinDDK\7600.16385.1\inc\api\devpropdef.h
-#ifdef DEFINE_DEVPROPKEY
-#undef DEFINE_DEVPROPKEY
-#endif
-#ifdef INITGUID
-#define DEFINE_DEVPROPKEY(name, l, w1, w2, b1, b2, b3, b4, b5, b6, b7, b8, pid) const DEVPROPKEY DECLSPEC_SELECTANY name = { { l, w1, w2, { b1, b2,  b3,  b4,  b5,  b6,  b7,  b8 } }, pid }
-#else
-#define DEFINE_DEVPROPKEY(name, l, w1, w2, b1, b2, b3, b4, b5, b6, b7, b8, pid) const DEVPROPKEY name
-#endif // INITGUID
-
-// include DEVPKEY_Device_BusReportedDeviceDesc from WinDDK\7600.16385.1\inc\api\devpkey.h
-DEFINE_DEVPROPKEY(DEVPKEY_Device_BusReportedDeviceDesc,  0x540b947e, 0x8b40, 0x45bc, 0xa8, 0xa2, 0x6a, 0x0b, 0x89, 0x4c, 0xbd, 0xa2, 4);     // DEVPROP_TYPE_STRING
-DEFINE_DEVPROPKEY(DEVPKEY_Device_ContainerId,            0x8c7ed206, 0x3f8a, 0x4827, 0xb3, 0xab, 0xae, 0x9e, 0x1f, 0xae, 0xfc, 0x6c, 2);     // DEVPROP_TYPE_GUID
-DEFINE_DEVPROPKEY(DEVPKEY_Device_FriendlyName,           0xa45c254e, 0xdf1c, 0x4efd, 0x80, 0x20, 0x67, 0xd1, 0x46, 0xa8, 0x50, 0xe0, 14);    // DEVPROP_TYPE_STRING
-DEFINE_DEVPROPKEY(DEVPKEY_DeviceDisplay_Category,        0x78c34fc8, 0x104a, 0x4aca, 0x9e, 0xa4, 0x52, 0x4d, 0x52, 0x99, 0x6e, 0x57, 0x5a);  // DEVPROP_TYPE_STRING_LIST
-DEFINE_DEVPROPKEY(DEVPKEY_Device_LocationInfo,           0xa45c254e, 0xdf1c, 0x4efd, 0x80, 0x20, 0x67, 0xd1, 0x46, 0xa8, 0x50, 0xe0, 15);    // DEVPROP_TYPE_STRING
-DEFINE_DEVPROPKEY(DEVPKEY_Device_Manufacturer,           0xa45c254e, 0xdf1c, 0x4efd, 0x80, 0x20, 0x67, 0xd1, 0x46, 0xa8, 0x50, 0xe0, 13);    // DEVPROP_TYPE_STRING
-DEFINE_DEVPROPKEY(DEVPKEY_Device_SecuritySDS,            0xa45c254e, 0xdf1c, 0x4efd, 0x80, 0x20, 0x67, 0xd1, 0x46, 0xa8, 0x50, 0xe0, 26);    // DEVPROP_TYPE_SECURITY_DESCRIPTOR_STRING
-
-typedef BOOL (WINAPI *FN_SetupDiGetDevicePropertyW)(
-  HDEVINFO DeviceInfoSet,
-  PSP_DEVINFO_DATA DeviceInfoData,
-  const DEVPROPKEY *PropertyKey,
-  DEVPROPTYPE *PropertyType,
-  PBYTE PropertyBuffer,
-  DWORD PropertyBufferSize,
-  PDWORD RequiredSize,
-  DWORD Flags
-);
-
 void scan_for_device() {
   SP_DEVINFO_DATA devinfo_data;
   SP_DEVICE_INTERFACE_DATA device_interface_data;
@@ -57,17 +27,24 @@ void scan_for_device() {
   GUID hid_guid;
   DWORD dwPropertyRegDataType;
   DEVPROPTYPE ulPropertyType;
-  HANDLE dev_handle;
+  HANDLE dev_handle = INVALID_HANDLE_VALUE;
   WCHAR szDesc[2048];
   WCHAR szBuffer[2048];
   WCHAR driver_name[256];
   WCHAR szGuid[64] = { 0 };
   DWORD device_index = 0;
+  BYTE report_buffer[128] = { 0 };
+  unsigned char usage_value[128] = { 0 };
+  DWORD error = 0;
   DWORD dwSize = 0;
   USHORT collection_length = 0;
   NTSTATUS res;
+  OVERLAPPED overlap_state;
+  BOOL have_current_io_request = FALSE;
+  BYTE report_id = -1;
+  ULONG expected_report_size = -1;
 
-  int i = 0;
+  int i = 0, j = 0;
 
   HidD_GetHidGuid(&hid_guid);
   StringFromGUID2(&hid_guid, szGuid, 64);
@@ -75,8 +52,6 @@ void scan_for_device() {
 
   StringFromGUID2(&hidclass_guid, szGuid, 64);
   log_f("HIDClass guid: %ls", szGuid);
-
-  FN_SetupDiGetDevicePropertyW SetupDiGetDevicePropertyW = (FN_SetupDiGetDevicePropertyW) GetProcAddress(GetModuleHandle("setupapi.dll"), "SetupDiGetDevicePropertyW");
 
   device_info_set = SetupDiGetClassDevs(&hid_guid, NULL, NULL, DIGCF_PRESENT | DIGCF_DEVICEINTERFACE);
 
@@ -136,10 +111,6 @@ void scan_for_device() {
       log_f("i: %lu, Device Description: %ls", device_index, szDesc);
     }
 
-    if (SetupDiGetDevicePropertyW(device_info_set, &devinfo_data, &DEVPKEY_Device_Manufacturer, &ulPropertyType, (BYTE *) &szBuffer, sizeof(szBuffer), &dwSize, 0)) {
-      log_f("i: %lu, Manufacturer: %ls", device_index, szBuffer);
-    }
-
     log_f("i: %lu, DevicePath = %ls", device_index, device_interface_detail_data->DevicePath);
 
     dev_handle = CreateFileW(
@@ -148,7 +119,7 @@ void scan_for_device() {
       FILE_SHARE_READ | FILE_SHARE_WRITE,
       NULL,
       OPEN_EXISTING,
-      0,
+      FILE_FLAG_OVERLAPPED,
       NULL);
     if (dev_handle == INVALID_HANDLE_VALUE) {
       log_f("i: %lu, CreateFileW error: %lu", device_index, GetLastError());
@@ -166,13 +137,20 @@ void scan_for_device() {
     }
     log_f("i: %lu, Top-Level Collection Usage: %u, Usage Page: 0x%04x", device_index, caps.Usage, caps.UsagePage);
 
-    if (caps.NumberInputValueCaps == 0) {
+    // 0xffca is the card reader usage page ID
+    if (caps.UsagePage != 0xffca) {
+      log_f("i: %lu, incorrect usage page", device_index);
+      goto cont_hid;
+    } else if (caps.NumberInputValueCaps == 0) {
       log_f("i: %lu, no value caps", device_index);
       goto cont_hid;
     }
 
 #define VALUE(KEY) log_f("i: %lu, " #KEY ": %u", device_index, KEY)
 
+    VALUE(caps.InputReportByteLength);
+    VALUE(caps.OutputReportByteLength);
+    VALUE(caps.FeatureReportByteLength);
     VALUE(caps.NumberLinkCollectionNodes);
     VALUE(caps.NumberInputButtonCaps);
     VALUE(caps.NumberInputValueCaps);
@@ -191,7 +169,6 @@ void scan_for_device() {
     res = HidP_GetValueCaps(HidP_Input, collection, &collection_length, pp_data);
     if (res != HIDP_STATUS_SUCCESS) {
       log_f("i: %lu, HidP_GetLinkCollectionNodes error: 0x%08lx", device_index, res);
-      free(collection);
       goto cont_hid;
     }
 
@@ -214,18 +191,42 @@ void scan_for_device() {
       }
     }
 
-    BYTE report_buffer[9] = { 0 };
+    memset(&overlap_state, 0, sizeof(OVERLAPPED));
     i = 0;
 
     while (1) {
-      if (!ReadFile(dev_handle, &report_buffer, sizeof(report_buffer), &dwSize, NULL)) {
+      if (have_current_io_request) {
+        if (HasOverlappedIoCompleted(&overlap_state)) {
+          have_current_io_request = FALSE;
+
+          log_f("read finished");
+          if (!GetOverlappedResult(dev_handle, &overlap_state, &dwSize, FALSE)) {
+            log_f("i: %lu, GetOverlappedResult error: %lu", device_index, GetLastError());
+            goto cont_hid;
+          }
+
+          memset(&overlap_state, 0, sizeof(OVERLAPPED));
+        } else {
+          // Give Windows some time to do other things
+          Sleep(16);
+          continue;
+        }
+      } else if (!ReadFile(dev_handle, &report_buffer, sizeof(report_buffer), &dwSize, &overlap_state)) {
+        error = GetLastError();
+
+        if (error == ERROR_IO_PENDING) {
+          have_current_io_request = TRUE;
+        } else {
+          log_f("i: %lu, ReadFile error: %lu", device_index, error);
+          goto cont_hid;
+        }
+
         continue;
       }
 
-      if (dwSize != sizeof(report_buffer)) {
-        log_f("returned buffer too small, dwSize = %lu", dwSize);
-        free(collection);
-        goto cont_hid;
+      if (dwSize == 0) {
+        log_f("not enough bytes read, dwSize = %lu", dwSize);
+        continue;
       }
 
       log_f("got report: %02x %02x %02x %02x %02x %02x %02x %02x %02x",
@@ -239,19 +240,84 @@ void scan_for_device() {
         report_buffer[7],
         report_buffer[8]);
 
+      for (j = 0; j < collection_length; j++) {
+        res = HidP_GetUsageValueArray(
+          HidP_Input,
+          caps.UsagePage,
+          0,
+          collection[j].NotRange.Usage,
+          (PCHAR) &usage_value,
+          sizeof(usage_value),
+          pp_data,
+          (PCHAR) &report_buffer,
+          dwSize);
+
+        // Loop through the collection to find the entry that handles
+        // this ReportID
+        if (res == HIDP_STATUS_INCOMPATIBLE_REPORT_ID) {
+          continue;
+        }
+
+        if (res != HIDP_STATUS_SUCCESS) {
+          log_f("i: %lu, HidP_GetData error: 0x%08lx", device_index, res);
+
+          const char *msg;
+#define B(MSG) case MSG: msg = #MSG; break
+          switch (res) {
+            B(HIDP_STATUS_INVALID_PREPARSED_DATA);
+            B(HIDP_STATUS_INVALID_REPORT_TYPE);
+            B(HIDP_STATUS_INVALID_REPORT_LENGTH);
+            B(HIDP_STATUS_USAGE_NOT_FOUND);
+            B(HIDP_STATUS_VALUE_OUT_OF_RANGE);
+            B(HIDP_STATUS_BAD_LOG_PHY_VALUES);
+            B(HIDP_STATUS_BUFFER_TOO_SMALL);
+            B(HIDP_STATUS_INTERNAL_ERROR);
+            B(HIDP_STATUS_INCOMPATIBLE_REPORT_ID);
+            B(HIDP_STATUS_NOT_VALUE_ARRAY);
+            B(HIDP_STATUS_IS_VALUE_ARRAY);
+            B(HIDP_STATUS_DATA_INDEX_NOT_FOUND);
+            B(HIDP_STATUS_DATA_INDEX_OUT_OF_RANGE);
+            default: msg = "unknown";
+          }
+#undef B
+          log_f("error type: %s", msg);
+          goto cont_hid;
+        }
+
+        log_f("got report %02x: %02x %02x %02x %02x %02x %02x %02x %02x",
+          collection[j].NotRange.Usage,
+          usage_value[0],
+          usage_value[1],
+          usage_value[2],
+          usage_value[3],
+          usage_value[4],
+          usage_value[5],
+          usage_value[6],
+          usage_value[7]);
+      }
+
+      Sleep(2000);
+
       if (i++ >= 5) {
         break;
       }
     }
 
-    free(collection);
 cont_hid:
+    if (collection != NULL) {
+      free(collection);
+      collection = NULL;
+    }
+
     HidD_FreePreparsedData(pp_data);
+    pp_data = NULL;
 cont_close:
     CloseHandle(dev_handle);
+    dev_handle = NULL;
 cont:
     if (device_interface_detail_data) {
       free(device_interface_detail_data);
+      device_interface_detail_data = NULL;
     }
 
     device_index++;
