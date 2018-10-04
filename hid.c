@@ -53,6 +53,7 @@ void scan_for_device() {
   HDEVINFO device_info_set = (HDEVINFO) INVALID_HANDLE_VALUE;
   PHIDP_PREPARSED_DATA pp_data = NULL;
   HIDP_CAPS caps;
+  HIDP_VALUE_CAPS *collection = NULL;
   GUID hid_guid;
   DWORD dwPropertyRegDataType;
   DEVPROPTYPE ulPropertyType;
@@ -63,7 +64,10 @@ void scan_for_device() {
   WCHAR szGuid[64] = { 0 };
   DWORD device_index = 0;
   DWORD dwSize = 0;
+  USHORT collection_length = 0;
   NTSTATUS res;
+
+  int i = 0;
 
   HidD_GetHidGuid(&hid_guid);
   StringFromGUID2(&hid_guid, szGuid, 64);
@@ -136,14 +140,16 @@ void scan_for_device() {
       log_f("i: %lu, Manufacturer: %ls", device_index, szBuffer);
     }
 
+    log_f("i: %lu, DevicePath = %ls", device_index, device_interface_detail_data->DevicePath);
+
     dev_handle = CreateFileW(
       device_interface_detail_data->DevicePath,
       GENERIC_READ | GENERIC_WRITE,
       FILE_SHARE_READ | FILE_SHARE_WRITE,
       NULL,
       OPEN_EXISTING,
-      FILE_FLAG_OVERLAPPED,
-      0);
+      0,
+      NULL);
     if (dev_handle == INVALID_HANDLE_VALUE) {
       log_f("i: %lu, CreateFileW error: %lu", device_index, GetLastError());
       goto cont;
@@ -155,11 +161,91 @@ void scan_for_device() {
 
     res = HidP_GetCaps(pp_data, &caps);
     if (res != HIDP_STATUS_SUCCESS) {
-      log_f("i: %lu, HidP_GetCaps error: %lu", device_index, res);
+      log_f("i: %lu, HidP_GetCaps error: 0x%08lx", device_index, res);
       goto cont_close;
     }
-    log_f("i: %lu, Usage: %u, Usage Page: 0x%04x", device_index, caps.Usage, caps.UsagePage);
+    log_f("i: %lu, Top-Level Collection Usage: %u, Usage Page: 0x%04x", device_index, caps.Usage, caps.UsagePage);
 
+    if (caps.NumberInputValueCaps == 0) {
+      log_f("i: %lu, no value caps", device_index);
+      goto cont_hid;
+    }
+
+#define VALUE(KEY) log_f("i: %lu, " #KEY ": %u", device_index, KEY)
+
+    VALUE(caps.NumberLinkCollectionNodes);
+    VALUE(caps.NumberInputButtonCaps);
+    VALUE(caps.NumberInputValueCaps);
+    VALUE(caps.NumberInputDataIndices);
+    VALUE(caps.NumberOutputButtonCaps);
+    VALUE(caps.NumberOutputValueCaps);
+    VALUE(caps.NumberOutputDataIndices);
+    VALUE(caps.NumberFeatureButtonCaps);
+    VALUE(caps.NumberFeatureValueCaps);
+    VALUE(caps.NumberFeatureDataIndices);
+
+#undef VALUE
+
+    collection_length = caps.NumberInputValueCaps;
+    collection = (HIDP_VALUE_CAPS *) malloc(collection_length * sizeof(HIDP_VALUE_CAPS));
+    res = HidP_GetValueCaps(HidP_Input, collection, &collection_length, pp_data);
+    if (res != HIDP_STATUS_SUCCESS) {
+      log_f("i: %lu, HidP_GetLinkCollectionNodes error: 0x%08lx", device_index, res);
+      free(collection);
+      goto cont_hid;
+    }
+
+    for (i = 0; i < collection_length; i++) {
+      log_f("device_index: %lu", device_index);
+      log_f("  collection[%d]", i);
+      log_f("    UsagePage = 0x%04x", collection[i].UsagePage);
+      log_f("    ReportID = %u", collection[i].ReportID);
+      log_f("    IsAlias = %u", collection[i].IsAlias);
+      log_f("    LinkUsage = %u", collection[i].LinkUsage);
+      log_f("    IsRange = %u", collection[i].IsRange);
+      log_f("    IsAbsolute = %u", collection[i].IsAbsolute);
+      log_f("    BitSize = %u", collection[i].BitSize);
+      log_f("    ReportCount = %u", collection[i].ReportCount);
+
+      if (!collection[i].IsRange) {
+        log_f("    collection[%d].NotRange:", i);
+        log_f("      Usage = 0x%x", collection[i].NotRange.Usage);
+        log_f("      DataIndex = %u", collection[i].NotRange.DataIndex);
+      }
+    }
+
+    BYTE report_buffer[9] = { 0 };
+    i = 0;
+
+    while (1) {
+      if (!ReadFile(dev_handle, &report_buffer, sizeof(report_buffer), &dwSize, NULL)) {
+        continue;
+      }
+
+      if (dwSize != sizeof(report_buffer)) {
+        log_f("returned buffer too small, dwSize = %lu", dwSize);
+        free(collection);
+        goto cont_hid;
+      }
+
+      log_f("got report: %02x %02x %02x %02x %02x %02x %02x %02x %02x",
+        report_buffer[0],
+        report_buffer[1],
+        report_buffer[2],
+        report_buffer[3],
+        report_buffer[4],
+        report_buffer[5],
+        report_buffer[6],
+        report_buffer[7],
+        report_buffer[8]);
+
+      if (i++ >= 5) {
+        break;
+      }
+    }
+
+    free(collection);
+cont_hid:
     HidD_FreePreparsedData(pp_data);
 cont_close:
     CloseHandle(dev_handle);
