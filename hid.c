@@ -67,6 +67,13 @@ void hid_print_caps(struct eamio_hid_device *hid_ctx) {
 #undef VALUE
 }
 
+/*
+ * Checks all devices registered with the HIDClass GUID. If the usage page of
+ * the device is 0xffca, then a compatible card reader was found.
+ *
+ * Usage 0x41 => ISO_15693
+ * Usage 0x42 => ISO_18092 (FeliCa)
+ */
 BOOL hid_scan(struct eamio_hid_device *hid_ctx) {
   SP_DEVINFO_DATA devinfo_data;
   SP_DEVICE_INTERFACE_DATA device_interface_data;
@@ -92,8 +99,9 @@ BOOL hid_scan(struct eamio_hid_device *hid_ctx) {
   StringFromGUID2(&hidclass_guid, szGuid, 64);
   log_f("HIDClass guid: %ls", szGuid);
 
+  // HID collection opening needs `DIGCF_DEVICEINTERFACE` and ignore
+  // disconnected devices
   device_info_set = SetupDiGetClassDevs(&hid_guid, NULL, NULL, DIGCF_PRESENT | DIGCF_DEVICEINTERFACE);
-
   if (device_info_set == INVALID_HANDLE_VALUE) {
     log_f("SetupDiGetClassDevs error: %lu", GetLastError());
     goto end;
@@ -348,28 +356,7 @@ uint8_t hid_device_read(struct eamio_hid_device *hid_ctx) {
 
     if (res != HIDP_STATUS_SUCCESS) {
       log_f("HidP_GetData error: 0x%08lx", res);
-
-      const char *msg;
-#define B(MSG) case MSG: msg = #MSG; break
-      switch (res) {
-        B(HIDP_STATUS_INVALID_PREPARSED_DATA);
-        B(HIDP_STATUS_INVALID_REPORT_TYPE);
-        B(HIDP_STATUS_INVALID_REPORT_LENGTH);
-        B(HIDP_STATUS_USAGE_NOT_FOUND);
-        B(HIDP_STATUS_VALUE_OUT_OF_RANGE);
-        B(HIDP_STATUS_BAD_LOG_PHY_VALUES);
-        B(HIDP_STATUS_BUFFER_TOO_SMALL);
-        B(HIDP_STATUS_INTERNAL_ERROR);
-        B(HIDP_STATUS_INCOMPATIBLE_REPORT_ID);
-        B(HIDP_STATUS_NOT_VALUE_ARRAY);
-        B(HIDP_STATUS_IS_VALUE_ARRAY);
-        B(HIDP_STATUS_DATA_INDEX_NOT_FOUND);
-        B(HIDP_STATUS_DATA_INDEX_OUT_OF_RANGE);
-        default: msg = "unknown";
-      }
-#undef B
-      log_f("error type: %s", msg);
-      return -1;
+      return HID_CARD_NONE;
     }
 
     log_f("got report %02x: %02x %02x %02x %02x %02x %02x %02x %02x",

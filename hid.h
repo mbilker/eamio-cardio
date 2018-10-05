@@ -2,11 +2,6 @@
 #include <stdint.h>
 #include <hidsdi.h>
 
-typedef void (*log_func_t)(const char *fmt, ...)
-  __attribute__(( format(printf, 1, 2) ));
-
-extern log_func_t log_f;
-
 struct eamio_hid_device {
   HANDLE dev_handle;
   OVERLAPPED read_state;
@@ -35,7 +30,6 @@ enum hid_card_type {
   HID_CARD_ISO_18092 = 0x42,
 };
 
-void set_log_func(log_func_t log_func);
 void hid_ctx_init(struct eamio_hid_device *hid_ctx);
 void hid_free(struct eamio_hid_device *hid_ctx);
 BOOL hid_scan(struct eamio_hid_device *hid_ctx);
