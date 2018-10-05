@@ -6,25 +6,22 @@ STRIP = strip
 
 #CFLAGS = -O2 -D_UNICODE -DDBT_DEBUG -DEAMIO_DEBUG
 CFLAGS = -O2 -D_UNICODE
+LDFLAGS = -lsetupapi -lhid -lole32
 
-SOURCES = drive_check.o window.o
+SOURCES = hid.o log.o
 
-all: test_hid.exe eamio.dll eamio_bt5.dll
+all: test_hid.exe eamio.dll
 
-test_hid.exe: test_hid.o hid.o $(SOURCES)
-	$(CC) $(CFLAGS) -g -static -mconsole -mwindows -municode -o $@ $^ -lsetupapi -lhid -lole32
+test_hid.exe: test_hid.o $(SOURCES)
+	$(CC) $(CFLAGS) -g -static -mconsole -mwindows -municode -o $@ $^ $(LDFLAGS)
 	$(STRIP) $@
 
 eamio.dll: eamio.o $(SOURCES)
-	$(CC) $(CFLAGS) -shared -flto -municode -o $@ $^
-	$(STRIP) $@
-
-eamio_bt5.dll: eamio.c $(SOURCES)
-	$(CC) $(CFLAGS) -DWITH_ORIG_EAMIO -shared -flto -municode -Wno-format-security -o $@ $^
+	$(CC) $(CFLAGS) -shared -flto -municode -o $@ $^ $(LDFLAGS)
 	$(STRIP) $@
 
 clean:
-	rm -f test_notif.exe eamio.dll eamio_bt5.dll *.o
+	rm -f test_notif.exe eamio.dll *.o
 
 %.o: %.cpp
 	$(CPP) -s -flto -Wall -c -o $@ $<
