@@ -12,6 +12,9 @@ log_formatter_t info_ptr;
 log_formatter_t warning_ptr;
 log_formatter_t fatal_ptr;
 
+uint8_t ID_TIMER = 0;
+uint8_t LAST_CARD_TYPE = 0;
+
 struct eamio_hid_device hid_ctx;
 
 void info_log_f(const char *fmt, ...) {
@@ -161,6 +164,12 @@ uint8_t eam_io_get_sensor_state(uint8_t unit_no) {
   if (unit_no >= 1) {
     return 0;
   }
+  if (ID_TIMER) {
+    DEBUG_LOG("ID_TIMER: %u", ID_TIMER);
+
+    ID_TIMER--;
+    return 3;
+  }
 
   switch (hid_device_poll(&hid_ctx)) {
     case HID_POLL_ERROR:
@@ -181,6 +190,10 @@ uint8_t eam_io_read_card(uint8_t unit_no, uint8_t *card_id, uint8_t nbytes) {
   if (unit_no >= 1) {
     return EAM_IO_CARD_NONE;
   }
+  if (ID_TIMER) {
+    memcpy(card_id, hid_ctx.usage_value, nbytes);
+    return LAST_CARD_TYPE;
+  }
 
   uint8_t card_type = hid_device_read(&hid_ctx);
 
@@ -188,7 +201,6 @@ uint8_t eam_io_read_card(uint8_t unit_no, uint8_t *card_id, uint8_t nbytes) {
     fatal_ptr("cardio", "nbytes > buffer_size");
     return EAM_IO_CARD_NONE;
   }
-  memcpy(card_id, hid_ctx.usage_value, nbytes);
 
   switch (card_type) {
     case HID_CARD_NONE:
@@ -196,16 +208,23 @@ uint8_t eam_io_read_card(uint8_t unit_no, uint8_t *card_id, uint8_t nbytes) {
 
     case HID_CARD_ISO_15693:
       info_ptr("cardio", "Found: EAM_IO_CARD_ISO15696");
-      return EAM_IO_CARD_ISO15696;
+      LAST_CARD_TYPE = EAM_IO_CARD_ISO15696;
+      break;
 
     case HID_CARD_ISO_18092:
       info_ptr("cardio", "Found: EAM_IO_CARD_FELICA");
-      return EAM_IO_CARD_FELICA;
+      LAST_CARD_TYPE = EAM_IO_CARD_FELICA;
+      break;
 
     default:
-      warning_ptr("cardio", "Error retrieving card id");
+      warning_ptr("cardio", "Unknown card type found");
       return EAM_IO_CARD_NONE;
   }
+
+  memcpy(card_id, hid_ctx.usage_value, nbytes);
+  ID_TIMER = 32;
+
+  return LAST_CARD_TYPE;
 }
 
 bool eam_io_card_slot_cmd(uint8_t unit_no, uint8_t cmd) {
