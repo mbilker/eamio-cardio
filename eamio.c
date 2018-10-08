@@ -7,6 +7,8 @@
 #include "hid.h"
 #include "log.h"
 
+#define DLLEXPORT __declspec(dllexport)
+
 log_formatter_t misc_ptr;
 log_formatter_t info_ptr;
 log_formatter_t warning_ptr;
@@ -107,7 +109,7 @@ LOAD_ORIG_EAMIO_FUNC(eam_io_poll);
 LOAD_ORIG_EAMIO_FUNC(eam_io_fini);
 LOAD_ORIG_EAMIO_FUNC(eam_io_get_config_api);
 
-void eam_io_set_loggers(log_formatter_t misc, log_formatter_t info, log_formatter_t warning, log_formatter_t fatal) {
+void DLLEXPORT eam_io_set_loggers(log_formatter_t misc, log_formatter_t info, log_formatter_t warning, log_formatter_t fatal) {
   misc_ptr = misc;
   info_ptr = info;
   warning_ptr = warning;
@@ -118,7 +120,7 @@ void eam_io_set_loggers(log_formatter_t misc, log_formatter_t info, log_formatte
   }
 }
 
-bool eam_io_init(thread_create_t thread_create, thread_join_t thread_join, thread_destroy_t thread_destroy) {
+bool DLLEXPORT eam_io_init(thread_create_t thread_create, thread_join_t thread_join, thread_destroy_t thread_destroy) {
   info_ptr("cardio", "HID Card Reader v1.3 (r" GIT_REVISION " " GIT_COMMIT ") by Felix");
 
   if (load_orig_eamio()) {
@@ -153,7 +155,7 @@ bool eam_io_init(thread_create_t thread_create, thread_join_t thread_join, threa
   }
 }
 
-void eam_io_fini(void) {
+void DLLEXPORT eam_io_fini(void) {
   if (orig_eam_io_initialized && super_eam_io_fini) {
     super_eam_io_fini();
   }
@@ -161,7 +163,7 @@ void eam_io_fini(void) {
   hid_free(&hid_ctx);
 }
 
-uint16_t eam_io_get_keypad_state(uint8_t unit_no) {
+uint16_t DLLEXPORT eam_io_get_keypad_state(uint8_t unit_no) {
   if (orig_eam_io_initialized && super_eam_io_get_keypad_state) {
     return super_eam_io_get_keypad_state(unit_no);
   }
@@ -169,7 +171,7 @@ uint16_t eam_io_get_keypad_state(uint8_t unit_no) {
   return 0;
 }
 
-uint8_t eam_io_get_sensor_state(uint8_t unit_no) {
+uint8_t DLLEXPORT eam_io_get_sensor_state(uint8_t unit_no) {
   bool checked_orig_eam_io = false;
   uint8_t result = 0;
 
@@ -225,7 +227,7 @@ uint8_t eam_io_get_sensor_state(uint8_t unit_no) {
   return result;
 }
 
-uint8_t eam_io_read_card(uint8_t unit_no, uint8_t *card_id, uint8_t nbytes) {
+uint8_t DLLEXPORT eam_io_read_card(uint8_t unit_no, uint8_t *card_id, uint8_t nbytes) {
   if (orig_eam_io_handle_card_read && orig_eam_io_initialized && super_eam_io_read_card) {
     info_ptr("cardio", "Reading card with eamio_orig.dll");
     return super_eam_io_read_card(unit_no, card_id, nbytes);
@@ -270,11 +272,11 @@ uint8_t eam_io_read_card(uint8_t unit_no, uint8_t *card_id, uint8_t nbytes) {
   return LAST_CARD_TYPE;
 }
 
-bool eam_io_card_slot_cmd(uint8_t unit_no, uint8_t cmd) {
+bool DLLEXPORT eam_io_card_slot_cmd(uint8_t unit_no, uint8_t cmd) {
   return false;
 }
 
-bool eam_io_poll(uint8_t unit_no) {
+bool DLLEXPORT eam_io_poll(uint8_t unit_no) {
   if (orig_eam_io_initialized && super_eam_io_poll) {
     super_eam_io_poll(unit_no);
   }
@@ -282,7 +284,7 @@ bool eam_io_poll(uint8_t unit_no) {
   return true;
 }
 
-const struct eam_io_config_api *eam_io_get_config_api(void) {
+const struct eam_io_config_api * DLLEXPORT eam_io_get_config_api(void) {
   if (load_orig_eamio() && load_eam_io_get_config_api()) {
     return super_eam_io_get_config_api();
   }
