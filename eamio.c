@@ -44,17 +44,22 @@ void fatal_log_f(const char *fmt, ...) {
 typedef void (*super_eam_io_set_loggers_t)(log_formatter_t, log_formatter_t, log_formatter_t, log_formatter_t);
 typedef bool (*super_eam_io_init_t)(thread_create_t, thread_join_t, thread_destroy_t);
 typedef uint16_t (*super_eam_io_get_keypad_state_t)(uint8_t);
+typedef uint8_t (*super_eam_io_get_sensor_state_t)(uint8_t);
+typedef uint8_t (*super_eam_io_read_card_t)(uint8_t, uint8_t *, uint8_t);
 typedef bool (*super_eam_io_poll_t)(uint8_t);
 typedef void (*super_eam_io_fini_t)(void);
 typedef struct eam_io_config_api *(*super_eam_io_get_config_api_t)(void);
 
 bool orig_eam_io_load_attempted = false;
 bool orig_eam_io_initialized = false;
+bool orig_eam_io_handle_card_read = false;
 
 HMODULE orig_eam_io_handle = NULL;
 super_eam_io_set_loggers_t super_eam_io_set_loggers = NULL;
 super_eam_io_init_t super_eam_io_init = NULL;
 super_eam_io_get_keypad_state_t super_eam_io_get_keypad_state = NULL;
+super_eam_io_get_sensor_state_t super_eam_io_get_sensor_state = NULL;
+super_eam_io_read_card_t super_eam_io_read_card = NULL;
 super_eam_io_poll_t super_eam_io_poll = NULL;
 super_eam_io_fini_t super_eam_io_fini = NULL;
 super_eam_io_get_config_api_t super_eam_io_get_config_api = NULL;
@@ -96,6 +101,8 @@ static bool load_ ## NAME() { \
 LOAD_ORIG_EAMIO_FUNC(eam_io_set_loggers);
 LOAD_ORIG_EAMIO_FUNC(eam_io_init);
 LOAD_ORIG_EAMIO_FUNC(eam_io_get_keypad_state);
+LOAD_ORIG_EAMIO_FUNC(eam_io_get_sensor_state);
+LOAD_ORIG_EAMIO_FUNC(eam_io_read_card);
 LOAD_ORIG_EAMIO_FUNC(eam_io_poll);
 LOAD_ORIG_EAMIO_FUNC(eam_io_fini);
 LOAD_ORIG_EAMIO_FUNC(eam_io_get_config_api);
@@ -117,6 +124,8 @@ bool eam_io_init(thread_create_t thread_create, thread_join_t thread_join, threa
   if (load_orig_eamio()) {
     if (!load_eam_io_init()) { return false; }
     if (!load_eam_io_get_keypad_state()) { return false; }
+    if (!load_eam_io_get_sensor_state()) { return false; }
+    if (!load_eam_io_read_card()) { return false; }
     if (!load_eam_io_poll()) { return false; }
     if (!load_eam_io_fini()) { return false; }
 
@@ -161,32 +170,66 @@ uint16_t eam_io_get_keypad_state(uint8_t unit_no) {
 }
 
 uint8_t eam_io_get_sensor_state(uint8_t unit_no) {
-  if (unit_no >= 1) {
-    return 0;
+  bool checked_orig_eam_io = false;
+  uint8_t result = 0;
+
+  // Disable card reading from the original eamio.dll when it returns zero
+  // from `eam_io_get_sensor_state`
+  if (orig_eam_io_handle_card_read &&
+      orig_eam_io_initialized &&
+      super_eam_io_get_sensor_state)
+  {
+    result = super_eam_io_get_sensor_state(unit_no);
+
+    if (result == 0) {
+      orig_eam_io_handle_card_read = false;
+      checked_orig_eam_io = true;
+    } else {
+      return result;
+    }
   }
-  if (ID_TIMER) {
-    DEBUG_LOG("ID_TIMER: %u", ID_TIMER);
 
-    ID_TIMER--;
-    return 3;
-  }
+  if (unit_no == 0) {
+    if (ID_TIMER) {
+      DEBUG_LOG("ID_TIMER: %u", ID_TIMER);
 
-  switch (hid_device_poll(&hid_ctx)) {
-    case HID_POLL_ERROR:
-      fatal_ptr("cardio", "Error polling device");
-      return 0;
-
-    case HID_POLL_CARD_NOT_READY:
-      return 0;
-
-    case HID_POLL_CARD_READY:
+      ID_TIMER--;
       return 3;
+    }
+
+    switch (hid_device_poll(&hid_ctx)) {
+      case HID_POLL_ERROR:
+        fatal_ptr("cardio", "Error polling device");
+        result = 0;
+        break;
+
+      case HID_POLL_CARD_NOT_READY:
+        result = 0;
+        break;
+
+      case HID_POLL_CARD_READY:
+        return 3;
+    }
   }
 
-  return 0;
+  if (result == 0 &&
+      !checked_orig_eam_io &&
+      orig_eam_io_initialized &&
+      super_eam_io_get_sensor_state)
+  {
+    orig_eam_io_handle_card_read = true;
+
+    return super_eam_io_get_sensor_state(unit_no);
+  }
+
+  return result;
 }
 
 uint8_t eam_io_read_card(uint8_t unit_no, uint8_t *card_id, uint8_t nbytes) {
+  if (orig_eam_io_handle_card_read && orig_eam_io_initialized && super_eam_io_read_card) {
+    info_ptr("cardio", "Reading card with eamio_orig.dll");
+    return super_eam_io_read_card(unit_no, card_id, nbytes);
+  }
   if (unit_no >= 1) {
     return EAM_IO_CARD_NONE;
   }
