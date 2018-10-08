@@ -112,7 +112,7 @@ void eam_io_set_loggers(log_formatter_t misc, log_formatter_t info, log_formatte
 }
 
 bool eam_io_init(thread_create_t thread_create, thread_join_t thread_join, thread_destroy_t thread_destroy) {
-  info_ptr("cardio", "HID Card Reader v1.2 (r" GIT_REVISION " " GIT_COMMIT ") by Felix");
+  info_ptr("cardio", "HID Card Reader v1.3 (r" GIT_REVISION " " GIT_COMMIT ") by Felix");
 
   if (load_orig_eamio()) {
     if (!load_eam_io_init()) { return false; }
