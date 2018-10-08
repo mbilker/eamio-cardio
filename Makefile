@@ -10,6 +10,9 @@ LDFLAGS = -lsetupapi -lhid -lole32
 
 SOURCES = hid.o log.o
 
+GIT_REVISION = $(shell git rev-list --count HEAD)
+GIT_COMMIT = $(shell git rev-parse --short HEAD)
+
 all: test_hid.exe eamio.dll
 
 test_hid.exe: test_hid.o $(SOURCES)
@@ -23,11 +26,20 @@ eamio.dll: eamio.o $(SOURCES)
 clean:
 	rm -f test_notif.exe eamio.dll *.o
 
-%.o: %.cpp
-	$(CPP) -s -flto -Wall -c -o $@ $<
-
 eamio.o: eamio.c
-	$(CC) $(CFLAGS) -Wno-format-security -s -flto -c -o $@ $<
+	$(CC) $(CFLAGS) -Wno-format-security -s -flto \
+		-DGIT_REVISION=\"$(GIT_REVISION)\" \
+		-DGIT_COMMIT=\"$(GIT_COMMIT)\" \
+		-c -o $@ $<
 
 %.o: %.c
-	$(CC) $(CFLAGS) -s -flto -c -o $@ $<
+	$(CC) $(CFLAGS) -s -flto \
+		-DGIT_REVISION=\"$(GIT_REVISION)\" \
+		-DGIT_COMMIT=\"$(GIT_COMMIT)\" \
+		-c -o $@ $<
+
+%.o: %.cpp
+	$(CPP) $(CFLAGS) -Wno-format-security -s -flto \
+		-DGIT_REVISION=\"$(GIT_REVISION)\" \
+		-DGIT_COMMIT=\"$(GIT_COMMIT)\" \
+		-c -o $@ $<
