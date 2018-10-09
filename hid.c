@@ -50,21 +50,18 @@ void hid_free(struct eamio_hid_device *hid_ctx) {
 }
 
 void hid_print_caps(struct eamio_hid_device *hid_ctx) {
-#define VALUE(KEY) log_f(#KEY ": %u", KEY)
-  VALUE(hid_ctx->caps.InputReportByteLength);
-  VALUE(hid_ctx->caps.OutputReportByteLength);
-  VALUE(hid_ctx->caps.FeatureReportByteLength);
-  VALUE(hid_ctx->caps.NumberLinkCollectionNodes);
-  VALUE(hid_ctx->caps.NumberInputButtonCaps);
-  VALUE(hid_ctx->caps.NumberInputValueCaps);
-  VALUE(hid_ctx->caps.NumberInputDataIndices);
-  VALUE(hid_ctx->caps.NumberOutputButtonCaps);
-  VALUE(hid_ctx->caps.NumberOutputValueCaps);
-  VALUE(hid_ctx->caps.NumberOutputDataIndices);
-  VALUE(hid_ctx->caps.NumberFeatureButtonCaps);
-  VALUE(hid_ctx->caps.NumberFeatureValueCaps);
-  VALUE(hid_ctx->caps.NumberFeatureDataIndices);
-#undef VALUE
+#define VPRINT(KEY, VALUE) log_f(#KEY ": %u", VALUE)
+  VPRINT(InputReportByteLength,     hid_ctx->caps.InputReportByteLength);
+  VPRINT(OutputReportByteLength,    hid_ctx->caps.OutputReportByteLength);
+  VPRINT(FeatureReportByteLength,   hid_ctx->caps.FeatureReportByteLength);
+  VPRINT(NumberLinkCollectionNodes, hid_ctx->caps.NumberLinkCollectionNodes);
+  VPRINT(NumberInputValueCaps,      hid_ctx->caps.NumberInputValueCaps);
+  VPRINT(NumberInputDataIndices,    hid_ctx->caps.NumberInputDataIndices);
+  VPRINT(NumberOutputValueCaps,     hid_ctx->caps.NumberOutputValueCaps);
+  VPRINT(NumberOutputDataIndices,   hid_ctx->caps.NumberOutputDataIndices);
+  VPRINT(NumberFeatureValueCaps,    hid_ctx->caps.NumberFeatureValueCaps);
+  VPRINT(NumberFeatureDataIndices,  hid_ctx->caps.NumberFeatureDataIndices);
+#undef VPRINT
 }
 
 /*
@@ -82,9 +79,7 @@ BOOL hid_scan(struct eamio_hid_device *hid_ctx) {
   GUID hid_guid;
   DWORD dwPropertyRegDataType;
   DEVPROPTYPE ulPropertyType;
-  WCHAR szDesc[2048];
   WCHAR szBuffer[2048];
-  WCHAR driver_name[256];
   WCHAR szGuid[64] = { 0 };
   DWORD device_index = 0;
   DWORD dwSize = 0;
@@ -118,45 +113,45 @@ BOOL hid_scan(struct eamio_hid_device *hid_ctx) {
 
     // Get the required size
     if (SetupDiGetDeviceInterfaceDetailW(device_info_set, &device_interface_data, NULL, 0, &dwSize, NULL)) {
-      log_f("  unexpected successful SetupDiGetDeviceInterfaceDetailW: %lu", GetLastError());
+      log_f("... unexpected successful SetupDiGetDeviceInterfaceDetailW: %lu", GetLastError());
       goto cont;
     }
 
     device_interface_detail_data = (SP_DEVICE_INTERFACE_DETAIL_DATA_W *) malloc(dwSize);
     if (device_interface_detail_data == NULL) {
-      log_f("  device_interface_detail_data malloc(%lu) failed: %lu", dwSize, GetLastError());
+      log_f("... device_interface_detail_data malloc(%lu) failed: %lu", dwSize, GetLastError());
       goto cont;
     }
 
     device_interface_detail_data->cbSize = sizeof(SP_DEVICE_INTERFACE_DETAIL_DATA_W);
 
     if (!SetupDiGetDeviceInterfaceDetailW(device_info_set, &device_interface_data, device_interface_detail_data, dwSize, NULL, NULL)) {
-      log_f("  SetupDiGetDeviceInterfaceDetailW error: %lu", GetLastError());
+      log_f("... SetupDiGetDeviceInterfaceDetailW error: %lu", GetLastError());
       goto cont;
     }
 
     if (!SetupDiEnumDeviceInfo(device_info_set, device_index, &devinfo_data)) {
-      log_f("  SetupDiEnumDeviceInfo error: %lu", GetLastError());
+      log_f("... SetupDiEnumDeviceInfo error: %lu", GetLastError());
       goto cont;
     }
 
     StringFromGUID2(&devinfo_data.ClassGuid, szGuid, 64);
-    log_f("  Class GUID: %ls", szGuid);
+    log_f("... Class GUID: %ls", szGuid);
 
     if (!IsEqualGUID(&hidclass_guid, &devinfo_data.ClassGuid)) {
-      log_f("  Incorrect Class GUID");
+      log_f("... Incorrect Class GUID");
       goto cont;
     }
 
-    if (SetupDiGetDeviceRegistryPropertyW(device_info_set, &devinfo_data, SPDRP_CLASS, NULL, (BYTE *) &driver_name, sizeof(driver_name), NULL)) {
-      log_f("  Driver Name: %ls", driver_name);
+    if (SetupDiGetDeviceRegistryPropertyW(device_info_set, &devinfo_data, SPDRP_CLASS, NULL, (BYTE *) &szBuffer, sizeof(szBuffer), NULL)) {
+      log_f("... Driver Name: %ls", szBuffer);
     }
 
-    if (SetupDiGetDeviceRegistryPropertyW(device_info_set, &devinfo_data, SPDRP_DEVICEDESC, &dwPropertyRegDataType, (BYTE *) &szDesc, sizeof(szDesc), &dwSize)) {
-      log_f("  Device Description: %ls", szDesc);
+    if (SetupDiGetDeviceRegistryPropertyW(device_info_set, &devinfo_data, SPDRP_DEVICEDESC, &dwPropertyRegDataType, (BYTE *) &szBuffer, sizeof(szBuffer), &dwSize)) {
+      log_f("... Device Description: %ls", szBuffer);
     }
 
-    log_f("  DevicePath = %ls", device_interface_detail_data->DevicePath);
+    log_f("... DevicePath = %ls", device_interface_detail_data->DevicePath);
     hid_ctx->dev_handle = CreateFileW(
       device_interface_detail_data->DevicePath,
       GENERIC_READ | GENERIC_WRITE,
@@ -166,29 +161,29 @@ BOOL hid_scan(struct eamio_hid_device *hid_ctx) {
       FILE_FLAG_OVERLAPPED,
       NULL);
     if (hid_ctx->dev_handle == INVALID_HANDLE_VALUE) {
-      log_f("  CreateFileW error: %lu", GetLastError());
+      log_f("... CreateFileW error: %lu", GetLastError());
       goto cont;
     }
     if (!HidD_GetPreparsedData(hid_ctx->dev_handle, &hid_ctx->pp_data)) {
-      log_f("  HidD_GetPreparsedData error: %lu", GetLastError());
+      log_f("... HidD_GetPreparsedData error: %lu", GetLastError());
       goto cont_hid;
     }
 
     res = HidP_GetCaps(hid_ctx->pp_data, &hid_ctx->caps);
     if (res != HIDP_STATUS_SUCCESS) {
-      log_f("  HidP_GetCaps error: 0x%08lx", res);
+      log_f("... HidP_GetCaps error: 0x%08lx", res);
       goto cont_hid;
     }
-    log_f("  Top-Level Usage: %u, Usage Page: 0x%04x",
+    log_f("... Top-Level Usage: %u, Usage Page: 0x%04x",
       hid_ctx->caps.Usage,
       hid_ctx->caps.UsagePage);
 
     // 0xffca is the card reader usage page ID
     if (hid_ctx->caps.UsagePage != 0xffca) {
-      log_f("  Incorrect usage page");
+      log_f("... Incorrect usage page");
       goto cont_hid;
     } else if (hid_ctx->caps.NumberInputValueCaps == 0) {
-      log_f("  No value caps");
+      log_f("... No value caps");
       goto cont_hid;
     }
 
@@ -202,26 +197,26 @@ BOOL hid_scan(struct eamio_hid_device *hid_ctx) {
       &hid_ctx->collection_length,
       hid_ctx->pp_data);
     if (res != HIDP_STATUS_SUCCESS) {
-      log_f("  HidP_GetLinkCollectionNodes error: 0x%08lx", res);
+      log_f("... HidP_GetLinkCollectionNodes error: 0x%08lx", res);
       goto cont_hid;
     }
 
     for (i = 0; i < hid_ctx->collection_length; i++) {
       HIDP_VALUE_CAPS *item = &hid_ctx->collection[i];
-      log_f("  collection[%d]", i);
-      log_f("    UsagePage = 0x%04x", item->UsagePage);
-      log_f("    ReportID = %u", item->ReportID);
-      log_f("    IsAlias = %u", item->IsAlias);
-      log_f("    LinkUsage = %u", item->LinkUsage);
-      log_f("    IsRange = %u", item->IsRange);
-      log_f("    IsAbsolute = %u", item->IsAbsolute);
-      log_f("    BitSize = %u", item->BitSize);
-      log_f("    ReportCount = %u", item->ReportCount);
+      log_f("... collection[%d]", i);
+      log_f("...   UsagePage = 0x%04x", item->UsagePage);
+      log_f("...   ReportID = %u", item->ReportID);
+      log_f("...   IsAlias = %u", item->IsAlias);
+      log_f("...   LinkUsage = %u", item->LinkUsage);
+      log_f("...   IsRange = %u", item->IsRange);
+      log_f("...   IsAbsolute = %u", item->IsAbsolute);
+      log_f("...   BitSize = %u", item->BitSize);
+      log_f("...   ReportCount = %u", item->ReportCount);
 
       if (!item->IsRange) {
-        log_f("    collection[%d].NotRange:", i);
-        log_f("      Usage = 0x%x", item->NotRange.Usage);
-        log_f("      DataIndex = %u", item->NotRange.DataIndex);
+        log_f("...   collection[%d].NotRange:", i);
+        log_f("...     Usage = 0x%x", item->NotRange.Usage);
+        log_f("...     DataIndex = %u", item->NotRange.DataIndex);
       }
     }
 
@@ -245,7 +240,6 @@ cont:
 
     device_index++;
   }
-  log_f("i: %lu, SetupDiEnumDeviceInterfaces error: %lu", device_index, GetLastError());
 
 end:
   if (device_info_set != INVALID_HANDLE_VALUE) {
@@ -305,6 +299,15 @@ hid_poll_value_t hid_device_poll(struct eamio_hid_device *ctx) {
   return HID_POLL_CARD_NOT_READY;
 }
 
+static const char *hid_card_type_name(hid_card_type_t card_type) {
+  switch (card_type) {
+    case HID_CARD_NONE: return "none";
+    case HID_CARD_ISO_15693: return "ISO 15693";
+    case HID_CARD_ISO_18092: return "ISO 18092 (FeliCa)";
+    default: return "unknown";
+  }
+}
+
 uint8_t hid_device_read(struct eamio_hid_device *hid_ctx) {
   DWORD error = 0;
   NTSTATUS res;
@@ -340,7 +343,7 @@ uint8_t hid_device_read(struct eamio_hid_device *hid_ctx) {
     res = HidP_GetUsageValueArray(
       HidP_Input,
       hid_ctx->caps.UsagePage,
-      0,
+      0, // LinkCollection
       item->NotRange.Usage,
       (PCHAR) &hid_ctx->usage_value,
       sizeof(hid_ctx->usage_value),
@@ -359,8 +362,7 @@ uint8_t hid_device_read(struct eamio_hid_device *hid_ctx) {
       return HID_CARD_NONE;
     }
 
-    log_f("got report %02x: %02x %02x %02x %02x %02x %02x %02x %02x",
-      item->NotRange.Usage,
+    log_f("Loaded card ID [%02X%02X%02X%02X%02X%02X%02X%02X] type %s (0x%02x)",
       hid_ctx->usage_value[0],
       hid_ctx->usage_value[1],
       hid_ctx->usage_value[2],
@@ -368,7 +370,9 @@ uint8_t hid_device_read(struct eamio_hid_device *hid_ctx) {
       hid_ctx->usage_value[4],
       hid_ctx->usage_value[5],
       hid_ctx->usage_value[6],
-      hid_ctx->usage_value[7]);
+      hid_ctx->usage_value[7],
+      hid_card_type_name(item->NotRange.Usage),
+      item->NotRange.Usage);
 
     return item->NotRange.Usage;
   }
