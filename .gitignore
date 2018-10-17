@@ -1,3 +1,3 @@
-*.o
-*.dll
-*.exe
+build/**/*.o
+build/**/*.dll
+build/*.exe
