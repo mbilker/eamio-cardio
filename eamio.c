@@ -134,7 +134,7 @@ bool DLLEXPORT eam_io_init(thread_create_t thread_create, thread_join_t thread_j
     if (super_eam_io_init(thread_create, thread_join, thread_destroy)) {
       orig_eam_io_initialized = true;
     } else {
-      fatal_ptr("cardio", "Failed to initialize eamio_orig.dll");
+      warning_ptr("cardio", "Failed to initialize eamio_orig.dll");
       return false;
     }
 
@@ -150,7 +150,7 @@ bool DLLEXPORT eam_io_init(thread_create_t thread_create, thread_join_t thread_j
     info_ptr("cardio", "HID card reader initialized");
     return true;
   } else {
-    fatal_ptr("cardio", "Failed to initialize HID card reader");
+    warning_ptr("cardio", "Failed to initialize HID card reader");
     return false;
   }
 }
