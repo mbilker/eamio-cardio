@@ -4,6 +4,7 @@
 #include <dbt.h>
 #include <hidsdi.h>
 
+#include "hid.h"
 #include "log.h"
 #include "window.h"
 
@@ -11,18 +12,14 @@ BOOL run_message_pump = TRUE;
 
 BOOL RegisterGuid(HWND hWnd, HDEVNOTIFY *hDeviceNotify) {
   DEV_BROADCAST_DEVICEINTERFACE notification_filter;
-  GUID hid_guid;
-
-  memset(&hid_guid, 0, sizeof(GUID));
-  HidD_GetHidGuid(&hid_guid);
 
   memset(&notification_filter, 0, sizeof(DEV_BROADCAST_DEVICEINTERFACE));
   notification_filter.dbcc_size = sizeof(DEV_BROADCAST_DEVICEINTERFACE);
   notification_filter.dbcc_devicetype = DBT_DEVTYP_DEVICEINTERFACE;
-  notification_filter.dbcc_classguid = hid_guid;
 
-  *hDeviceNotify = RegisterDeviceNotification(hWnd, &notification_filter, DEVICE_NOTIFY_WINDOW_HANDLE);
+  HidD_GetHidGuid(&notification_filter.dbcc_classguid);
 
+  *hDeviceNotify = RegisterDeviceNotificationW(hWnd, &notification_filter, DEVICE_NOTIFY_WINDOW_HANDLE);
   if (*hDeviceNotify = NULL) {
     log_f("RegisterDeviceNotification error: %lu", GetLastError());
     return FALSE;
@@ -36,7 +33,6 @@ INT_PTR WINAPI WinProcCallback(HWND hWnd, UINT message, WPARAM wParam, LPARAM lP
   static HDEVNOTIFY hDeviceNotify;
 
   LRESULT lRet = 1;
-  WCHAR szGuid[64] = { 0 };
 
   switch (message) {
     case WM_CREATE:
@@ -91,9 +87,18 @@ INT_PTR WINAPI WinProcCallback(HWND hWnd, UINT message, WPARAM wParam, LPARAM lP
         switch (pHdr->dbch_devicetype) {
           case DBT_DEVTYP_DEVICEINTERFACE:
           {
+            struct eamio_hid_device ctx;
+
+            hid_ctx_init(&ctx);
+
             PDEV_BROADCAST_DEVICEINTERFACE pDevInf = (PDEV_BROADCAST_DEVICEINTERFACE) pHdr;
-            StringFromGUID2(&pDevInf->dbcc_classguid, szGuid, 64);
-            log_f(" -> DBT_DEVTYP_DEVICEINTERFACE => name: %s, guid: %ls", pDevInf->dbcc_name, szGuid);
+            log_f(" -> DBT_DEVTYP_DEVICEINTERFACE => name: %ls", pDevInf->dbcc_name);
+
+            if (wParam == DBT_DEVICEARRIVAL && hid_scan_device(&ctx, pDevInf->dbcc_name)) {
+              log_f("HID reader found");
+              hid_free(&ctx);
+            }
+
             break;
           }
 #ifdef DBT_DEBUG
@@ -151,7 +156,7 @@ HWND CreateTheWindow(HINSTANCE hInstance) {
   HWND hWnd = CreateWindowEx(
       0,
       WND_CLASS_NAME,
-      "cardio",
+      TEXT("cardio"),
       WS_DISABLED,
       0, 0,
       CW_USEDEFAULT, CW_USEDEFAULT,
