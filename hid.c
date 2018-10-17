@@ -65,6 +65,92 @@ void hid_print_caps(struct eamio_hid_device *hid_ctx) {
 }
 
 /*
+ * Scan HID device to see if it is a HID reader
+ */
+BOOL hid_scan_device(struct eamio_hid_device *ctx, LPCWSTR device_path) {
+  size_t i;
+  NTSTATUS res;
+
+  log_f("... DevicePath = %ls", device_path);
+  ctx->dev_handle = CreateFileW(
+    device_path,
+    GENERIC_READ | GENERIC_WRITE,
+    FILE_SHARE_READ | FILE_SHARE_WRITE,
+    NULL,
+    OPEN_EXISTING,
+    FILE_FLAG_OVERLAPPED,
+    NULL);
+  if (ctx->dev_handle == INVALID_HANDLE_VALUE) {
+    log_f("... CreateFileW error: %lu", GetLastError());
+    return FALSE;
+  }
+  if (!HidD_GetPreparsedData(ctx->dev_handle, &ctx->pp_data)) {
+    log_f("... HidD_GetPreparsedData error: %lu", GetLastError());
+    goto end;
+  }
+
+  res = HidP_GetCaps(ctx->pp_data, &ctx->caps);
+  if (res != HIDP_STATUS_SUCCESS) {
+    log_f("... HidP_GetCaps error: 0x%08lx", res);
+    goto end;
+  }
+  log_f("... Top-Level Usage: %u, Usage Page: 0x%04x",
+    ctx->caps.Usage,
+    ctx->caps.UsagePage);
+
+  // 0xffca is the card reader usage page ID
+  if (ctx->caps.UsagePage != 0xffca) {
+    log_f("... Incorrect usage page");
+    goto end;
+  } else if (ctx->caps.NumberInputValueCaps == 0) {
+    log_f("... No value caps");
+    goto end;
+  }
+
+  hid_print_caps(ctx);
+
+  ctx->collection_length = ctx->caps.NumberInputValueCaps;
+  ctx->collection = (HIDP_VALUE_CAPS *) malloc(ctx->collection_length * sizeof(HIDP_VALUE_CAPS));
+  res = HidP_GetValueCaps(
+    HidP_Input,
+    ctx->collection,
+    &ctx->collection_length,
+    ctx->pp_data);
+  if (res != HIDP_STATUS_SUCCESS) {
+    log_f("... HidP_GetLinkCollectionNodes error: 0x%08lx", res);
+    goto end;
+  }
+
+  for (i = 0; i < ctx->collection_length; i++) {
+    HIDP_VALUE_CAPS *item = &ctx->collection[i];
+    log_f("... collection[%Iu]", i);
+    log_f("...   UsagePage = 0x%04x", item->UsagePage);
+    log_f("...   ReportID = %u", item->ReportID);
+    log_f("...   IsAlias = %u", item->IsAlias);
+    log_f("...   LinkUsage = %u", item->LinkUsage);
+    log_f("...   IsRange = %u", item->IsRange);
+    log_f("...   IsAbsolute = %u", item->IsAbsolute);
+    log_f("...   BitSize = %u", item->BitSize);
+    log_f("...   ReportCount = %u", item->ReportCount);
+
+    if (!item->IsRange) {
+      log_f("...   collection[%Iu].NotRange:", i);
+      log_f("...     Usage = 0x%x", item->NotRange.Usage);
+      log_f("...     DataIndex = %u", item->NotRange.DataIndex);
+    }
+  }
+
+  ctx->initialized = TRUE;
+
+  return TRUE;
+
+end:
+  hid_free(ctx);
+
+  return FALSE;
+}
+
+/*
  * Checks all devices registered with the HIDClass GUID. If the usage page of
  * the device is 0xffca, then a compatible card reader was found.
  *
@@ -78,14 +164,10 @@ BOOL hid_scan(struct eamio_hid_device *hid_ctx) {
   HDEVINFO device_info_set = (HDEVINFO) INVALID_HANDLE_VALUE;
   GUID hid_guid;
   DWORD dwPropertyRegDataType;
-  DEVPROPTYPE ulPropertyType;
-  WCHAR szBuffer[2048];
-  WCHAR szGuid[64] = { 0 };
+  wchar_t szBuffer[1024];
+  wchar_t szGuid[64] = { 0 };
   DWORD device_index = 0;
   DWORD dwSize = 0;
-  NTSTATUS res;
-
-  int i = 0;
 
   HidD_GetHidGuid(&hid_guid);
   StringFromGUID2(&hid_guid, szGuid, 64);
@@ -151,86 +233,12 @@ BOOL hid_scan(struct eamio_hid_device *hid_ctx) {
       log_f("... Device Description: %ls", szBuffer);
     }
 
-    log_f("... DevicePath = %ls", device_interface_detail_data->DevicePath);
-    hid_ctx->dev_handle = CreateFileW(
-      device_interface_detail_data->DevicePath,
-      GENERIC_READ | GENERIC_WRITE,
-      FILE_SHARE_READ | FILE_SHARE_WRITE,
-      NULL,
-      OPEN_EXISTING,
-      FILE_FLAG_OVERLAPPED,
-      NULL);
-    if (hid_ctx->dev_handle == INVALID_HANDLE_VALUE) {
-      log_f("... CreateFileW error: %lu", GetLastError());
-      goto cont;
+    if (hid_scan_device(hid_ctx, device_interface_detail_data->DevicePath)) {
+      free(device_interface_detail_data);
+      SetupDiDestroyDeviceInfoList(device_info_set);
+
+      return TRUE;
     }
-    if (!HidD_GetPreparsedData(hid_ctx->dev_handle, &hid_ctx->pp_data)) {
-      log_f("... HidD_GetPreparsedData error: %lu", GetLastError());
-      goto cont_hid;
-    }
-
-    res = HidP_GetCaps(hid_ctx->pp_data, &hid_ctx->caps);
-    if (res != HIDP_STATUS_SUCCESS) {
-      log_f("... HidP_GetCaps error: 0x%08lx", res);
-      goto cont_hid;
-    }
-    log_f("... Top-Level Usage: %u, Usage Page: 0x%04x",
-      hid_ctx->caps.Usage,
-      hid_ctx->caps.UsagePage);
-
-    // 0xffca is the card reader usage page ID
-    if (hid_ctx->caps.UsagePage != 0xffca) {
-      log_f("... Incorrect usage page");
-      goto cont_hid;
-    } else if (hid_ctx->caps.NumberInputValueCaps == 0) {
-      log_f("... No value caps");
-      goto cont_hid;
-    }
-
-    hid_print_caps(hid_ctx);
-
-    hid_ctx->collection_length = hid_ctx->caps.NumberInputValueCaps;
-    hid_ctx->collection = (HIDP_VALUE_CAPS *) malloc(hid_ctx->collection_length * sizeof(HIDP_VALUE_CAPS));
-    res = HidP_GetValueCaps(
-      HidP_Input,
-      hid_ctx->collection,
-      &hid_ctx->collection_length,
-      hid_ctx->pp_data);
-    if (res != HIDP_STATUS_SUCCESS) {
-      log_f("... HidP_GetLinkCollectionNodes error: 0x%08lx", res);
-      goto cont_hid;
-    }
-
-    for (i = 0; i < hid_ctx->collection_length; i++) {
-      HIDP_VALUE_CAPS *item = &hid_ctx->collection[i];
-      log_f("... collection[%d]", i);
-      log_f("...   UsagePage = 0x%04x", item->UsagePage);
-      log_f("...   ReportID = %u", item->ReportID);
-      log_f("...   IsAlias = %u", item->IsAlias);
-      log_f("...   LinkUsage = %u", item->LinkUsage);
-      log_f("...   IsRange = %u", item->IsRange);
-      log_f("...   IsAbsolute = %u", item->IsAbsolute);
-      log_f("...   BitSize = %u", item->BitSize);
-      log_f("...   ReportCount = %u", item->ReportCount);
-
-      if (!item->IsRange) {
-        log_f("...   collection[%d].NotRange:", i);
-        log_f("...     Usage = 0x%x", item->NotRange.Usage);
-        log_f("...     DataIndex = %u", item->NotRange.DataIndex);
-      }
-    }
-
-    hid_ctx->initialized = TRUE;
-
-    free(device_interface_detail_data);
-    device_interface_detail_data = NULL;
-
-    SetupDiDestroyDeviceInfoList(device_info_set);
-
-    return TRUE;
-
-cont_hid:
-    hid_free(hid_ctx);
 
 cont:
     if (device_interface_detail_data) {
