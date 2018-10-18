@@ -94,9 +94,9 @@ BOOL hid_init() {
     return FALSE;
   }
 
-  log_f("contexts[0] = 0x%p", &contexts[0]);
-  log_f("contexts[2] = 0x%p", &contexts[2]);
-  log_f("contexts + sizeof = 0x%p", ((void *) contexts) + contexts_size);
+  DEBUG_LOG("contexts[0] = 0x%p", &contexts[0]);
+  DEBUG_LOG("contexts[2] = 0x%p", &contexts[2]);
+  DEBUG_LOG("contexts + sizeof = 0x%p", ((void *) contexts) + contexts_size);
 
   contexts_length = DEFAULT_ALLOCATED_CONTEXTS;
 
@@ -145,12 +145,12 @@ void hid_print_contexts() {
   for (i = 0; i < contexts_length; i++) {
     struct eamio_hid_device *ctx = &contexts[i];
 
-    log_f("contexts[%Iu] = 0x%p", i, &contexts[i]);
-    log_f("... initialized = %d", ctx->initialized);
+    DEBUG_LOG("contexts[%Iu] = 0x%p", i, &contexts[i]);
+    DEBUG_LOG("... initialized = %d", ctx->initialized);
 
     if (ctx->initialized) {
-      log_f("... dev_path = %ls", ctx->dev_path);
-      log_f("... dev_handle = 0x%p", ctx->dev_handle);
+      DEBUG_LOG("... dev_path = %ls", ctx->dev_path);
+      DEBUG_LOG("... dev_handle = 0x%p", ctx->dev_handle);
     }
   }
 
@@ -188,7 +188,8 @@ BOOL hid_remove_device(LPCWSTR device_path) {
     // The device paths in `hid_scan` are partially lower-case, so perform a
     // case-insensitive comparison here
     if (contexts[i].initialized && (wcsicmp(device_path, contexts[i].dev_path) == 0)) {
-      log_f("hid_remove_device(\"%ls\") => i = %Iu", device_path, i);
+      DEBUG_LOG("hid_remove_device(\"%ls\") => i: %Iu", device_path, i);
+
       hid_ctx_reset(&contexts[i]);
 
       res = TRUE;
@@ -393,7 +394,7 @@ BOOL hid_scan() {
 
     device_interface_detail_data = (SP_DEVICE_INTERFACE_DETAIL_DATA_W *) HeapAlloc(GetProcessHeap(), 0, dwSize);
     if (device_interface_detail_data == NULL) {
-      log_f("... device_interface_detail_data malloc(%lu) failed: %lu", dwSize, GetLastError());
+      log_f("... failed to allocate memory of size %lu for device interface detail data: %lu", dwSize, GetLastError());
       goto cont;
     }
 
