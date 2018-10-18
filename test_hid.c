@@ -4,9 +4,6 @@
 #include "hid.h"
 #include "window.h"
 
-extern struct eamio_hid_device *contexts;
-extern size_t contexts_length;
-
 static BOOL hid_device_found() {
   size_t i;
 
