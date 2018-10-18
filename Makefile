@@ -23,15 +23,15 @@ all: build build/test_hid.exe build/32/eamio.dll build/64/eamio.dll
 build:
 	mkdir -p build/32 build/64
 
-build/test_hid.exe: build/32/test_hid.o $(SOURCES_32)
-	$(CC) $(CFLAGS) -g -static -mconsole -mwindows -municode -o $@ $^ $(LDFLAGS)
+build/test_hid.exe: build build/32/test_hid.o $(SOURCES_32)
+	$(CC) $(CFLAGS) -g -static -mconsole -mwindows -municode -o $@ $(filter-out $<,$^) $(LDFLAGS)
 
-build/32/eamio.dll: build/32/eamio.o $(SOURCES_32)
-	$(CC) $(CFLAGS) -shared -flto -municode -o $@ $^ $(LDFLAGS)
+build/32/eamio.dll: build build/32/eamio.o $(SOURCES_32)
+	$(CC) $(CFLAGS) -shared -flto -municode -o $@ $(filter-out $<,$^) $(LDFLAGS)
 	$(STRIP) $@
 
-build/64/eamio.dll: build/64/eamio.o $(SOURCES_64)
-	$(CC_64) $(CFLAGS) -shared -flto -municode -o $@ $^ $(LDFLAGS)
+build/64/eamio.dll: build build/64/eamio.o $(SOURCES_64)
+	$(CC_64) $(CFLAGS) -shared -flto -municode -o $@ $(filter-out $<,$^) $(LDFLAGS)
 	$(STRIP) $@
 
 card-eamio.zip: build/32/eamio.dll build/64/eamio.dll
