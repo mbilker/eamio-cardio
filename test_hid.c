@@ -4,14 +4,34 @@
 #include "hid.h"
 #include "window.h"
 
+extern struct eamio_hid_device *contexts;
+extern size_t contexts_length;
+
+static BOOL hid_device_found() {
+  size_t i;
+
+  for (i = 0; i < contexts_length; i++) {
+    if (contexts[i].initialized) {
+      return TRUE;
+    }
+  }
+
+  return FALSE;
+}
+
 int WINAPI wWinMain(HINSTANCE hInstanceExe, HINSTANCE hPrevInstance, LPWSTR lpstrCmdLine, int nCmdShow) {
-  struct eamio_hid_device hid_ctx;
   HWND hWnd;
 
-  hid_ctx_init(&hid_ctx);
+  hid_init();
 
   if (!InitWindowClass()) {
     return 1;
+  }
+
+  if (hid_scan()) {
+    printf("device scan successful\n");
+  } else {
+    printf("device scan error\n");
   }
 
   hWnd = CreateTheWindow(hInstanceExe);
@@ -19,10 +39,7 @@ int WINAPI wWinMain(HINSTANCE hInstanceExe, HINSTANCE hPrevInstance, LPWSTR lpst
     return 1;
   }
 
-  hid_scan(&hid_ctx);
-  printf("devices scanned\n");
-
-  if (hid_ctx.initialized) {
+  if (hid_device_found()) {
     /*
     hid_poll_value_t poll_value;
     for (int i = 0; i < 5; i++) {
@@ -36,8 +53,6 @@ int WINAPI wWinMain(HINSTANCE hInstanceExe, HINSTANCE hPrevInstance, LPWSTR lpst
     }
     printf("program exit\n");
     */
-
-    hid_free(&hid_ctx);
   } else {
     printf("HID reader not found\n");
   }
@@ -45,6 +60,8 @@ int WINAPI wWinMain(HINSTANCE hInstanceExe, HINSTANCE hPrevInstance, LPWSTR lpst
   if (!MessagePump(hWnd)) {
     return 1;
   }
+
+  hid_close();
 
   return 0;
 }

@@ -87,17 +87,16 @@ INT_PTR WINAPI WinProcCallback(HWND hWnd, UINT message, WPARAM wParam, LPARAM lP
         switch (pHdr->dbch_devicetype) {
           case DBT_DEVTYP_DEVICEINTERFACE:
           {
-            struct eamio_hid_device ctx;
-
-            hid_ctx_init(&ctx);
-
             PDEV_BROADCAST_DEVICEINTERFACE pDevInf = (PDEV_BROADCAST_DEVICEINTERFACE) pHdr;
             log_f(" -> DBT_DEVTYP_DEVICEINTERFACE => name: %ls", pDevInf->dbcc_name);
 
-            if (wParam == DBT_DEVICEARRIVAL && hid_scan_device(&ctx, pDevInf->dbcc_name)) {
+            if (wParam == DBT_DEVICEARRIVAL && hid_add_device(pDevInf->dbcc_name)) {
               log_f("HID reader found");
-              hid_free(&ctx);
+            } else {
+              hid_remove_device(pDevInf->dbcc_name);
             }
+
+            hid_print_contexts();
 
             break;
           }

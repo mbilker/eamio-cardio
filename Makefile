@@ -7,7 +7,7 @@ CPP_64 = x86_64-w64-mingw32-g++
 STRIP = strip
 
 #CFLAGS = -O2 -D_UNICODE -DDBT_DEBUG -DEAMIO_DEBUG
-CFLAGS = -O2 -D_UNICODE -DDBT_DEBUG
+CFLAGS = -O2 -D_UNICODE -DDBT_DEBUG -DHID_DEBUG
 #CFLAGS = -O2 -D_UNICODE
 LDFLAGS = -lsetupapi -lhid -lole32
 
@@ -25,7 +25,6 @@ build:
 
 build/test_hid.exe: build/32/test_hid.o build/32/window.o $(SOURCES_32)
 	$(CC) $(CFLAGS) -g -static -mconsole -mwindows -municode -o $@ $^ $(LDFLAGS)
-	$(STRIP) $@
 
 build/32/eamio.dll: build/32/eamio.o $(SOURCES_32)
 	$(CC) $(CFLAGS) -shared -flto -municode -o $@ $^ $(LDFLAGS)
