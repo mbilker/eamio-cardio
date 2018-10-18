@@ -76,7 +76,7 @@ INT_PTR WINAPI WinProcCallback(HWND hWnd, UINT message, WPARAM wParam, LPARAM lP
           // Don't care
           break;
         default:
-          log_f("Message: WM_DEVICECHANGE message received, value %u unhandled", wParam);
+          log_f("Message: WM_DEVICECHANGE message received, value %Iu unhandled", wParam);
           break;
       }
 #endif

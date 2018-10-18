@@ -6,6 +6,7 @@
 
 #include "hid.h"
 #include "log.h"
+#include "window.h"
 
 #define DLLEXPORT __declspec(dllexport)
 
@@ -13,6 +14,14 @@ log_formatter_t misc_ptr;
 log_formatter_t info_ptr;
 log_formatter_t warning_ptr;
 log_formatter_t fatal_ptr;
+
+thread_create_t thread_create_ptr;
+thread_join_t thread_join_ptr;
+thread_destroy_t thread_destroy_ptr;
+
+int message_pump_thread;
+BOOL message_pump_ready = FALSE;
+HWND hWnd;
 
 uint8_t ID_TIMER[2] = { 0, 0 };
 uint8_t LAST_CARD_TYPE[2] = { 0, 0 };
@@ -118,6 +127,31 @@ void DLLEXPORT eam_io_set_loggers(log_formatter_t misc, log_formatter_t info, lo
   }
 }
 
+int thread_message_pump(void *ctx) {
+  HINSTANCE hInstance;
+
+  if (!InitWindowClass()) {
+    fatal_ptr("cardio", "Failed to initialize window class");
+    return -1;
+  }
+
+  hInstance = GetModuleHandle(NULL);
+  if ((hWnd = CreateTheWindow(hInstance)) == NULL) {
+    fatal_ptr("cardio", "Failed to initialize the background window");
+    return -1;
+  }
+
+  info_log_f("Device notification listener ready, thread id = %lu", GetCurrentThreadId());
+  message_pump_ready = TRUE;
+
+  if (!MessagePump(hWnd)) {
+    fatal_ptr("cardio", "Message pump error");
+    return -1;
+  }
+
+  return 0;
+}
+
 bool DLLEXPORT eam_io_init(thread_create_t thread_create, thread_join_t thread_join, thread_destroy_t thread_destroy) {
   info_ptr("cardio", "HID Card Reader v1.3 (r" GIT_REVISION " " GIT_COMMIT ") by Felix");
 
@@ -143,17 +177,37 @@ bool DLLEXPORT eam_io_init(thread_create_t thread_create, thread_join_t thread_j
 
   set_log_func(info_log_f);
 
+  thread_create_ptr = thread_create;
+  thread_join_ptr = thread_join;
+  thread_destroy_ptr = thread_destroy;
+
   hid_init();
+
   if (!hid_scan()) {
     warning_ptr("cardio", "Failed to initialize HID card reader");
     return false;
   }
+
+  message_pump_thread = thread_create(thread_message_pump, NULL, 0x4000, 0);
+
+  while (message_pump_ready == FALSE) {
+    Sleep(25);
+  }
+
+  return true;
 }
 
 void DLLEXPORT eam_io_fini(void) {
+  int result;
+
   if (orig_eam_io_initialized && super_eam_io_fini) {
     super_eam_io_fini();
   }
+
+  EndTheWindow(hWnd);
+
+  info_ptr("cardio", "Device notification thread shutting down");
+  thread_join_ptr(message_pump_thread, &result);
 
   hid_close();
 }

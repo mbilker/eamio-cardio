@@ -11,7 +11,7 @@ CFLAGS = -O2 -D_UNICODE -DDBT_DEBUG -DHID_DEBUG
 #CFLAGS = -O2 -D_UNICODE
 LDFLAGS = -lsetupapi -lhid -lole32
 
-SOURCES = hid.o log.o
+SOURCES = hid.o log.o window.o
 SOURCES_32 = $(foreach source,$(SOURCES),build/32/$(source))
 SOURCES_64 = $(foreach source,$(SOURCES),build/64/$(source))
 
@@ -23,7 +23,7 @@ all: build build/test_hid.exe build/32/eamio.dll build/64/eamio.dll
 build:
 	mkdir build build/32 build/64
 
-build/test_hid.exe: build/32/test_hid.o build/32/window.o $(SOURCES_32)
+build/test_hid.exe: build/32/test_hid.o $(SOURCES_32)
 	$(CC) $(CFLAGS) -g -static -mconsole -mwindows -municode -o $@ $^ $(LDFLAGS)
 
 build/32/eamio.dll: build/32/eamio.o $(SOURCES_32)
