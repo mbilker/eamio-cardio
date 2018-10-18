@@ -21,7 +21,7 @@ GIT_COMMIT = $(shell git rev-parse --short HEAD)
 all: build build/test_hid.exe build/32/eamio.dll build/64/eamio.dll
 
 build:
-	mkdir build build/32 build/64
+	mkdir -p build/32 build/64
 
 build/test_hid.exe: build/32/test_hid.o $(SOURCES_32)
 	$(CC) $(CFLAGS) -g -static -mconsole -mwindows -municode -o $@ $^ $(LDFLAGS)
@@ -34,9 +34,19 @@ build/64/eamio.dll: build/64/eamio.o $(SOURCES_64)
 	$(CC_64) $(CFLAGS) -shared -flto -municode -o $@ $^ $(LDFLAGS)
 	$(STRIP) $@
 
+card-eamio.zip: build/32/eamio.dll build/64/eamio.dll
+	mkdir -p release/card-eamio/32 release/card-eamio/64
+	cp build/32/eamio.dll release/card-eamio/32/eamio.dll
+	cp build/64/eamio.dll release/card-eamio/64/eamio.dll
+	rm -f card-eamio.zip
+	(cd release; zip -r ../card-eamio.zip card-eamio)
+
 clean:
 	rm -f build/test_hid.exe build/32/* build/64/*
-	rmdir build/64 build/32 build
+	rm -f release/card-eamio/32/* release/card-eamio/64/* card-eamio.zip
+	rmdir \
+		build/64 build/32 build \
+		release/card-eamio/32 release/card-eamio/64 release/card-eamio release
 
 build/32/eamio.o: eamio.c
 	$(CC) $(CFLAGS) -Wno-format-security -s -flto \
