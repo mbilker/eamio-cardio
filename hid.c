@@ -346,7 +346,6 @@ end:
  * Usage 0x42 => ISO_18092 (FeliCa)
  */
 BOOL hid_scan() {
-  BOOL res = TRUE;
   SP_DEVINFO_DATA devinfo_data;
   SP_DEVICE_INTERFACE_DATA device_interface_data;
   SP_DEVICE_INTERFACE_DETAIL_DATA_W *device_interface_detail_data = NULL;
@@ -373,8 +372,7 @@ BOOL hid_scan() {
   if (device_info_set == INVALID_HANDLE_VALUE) {
     log_f("SetupDiGetClassDevs error: %lu", GetLastError());
 
-    res = FALSE;
-    goto end;
+    return FALSE;
   }
 
   memset(&devinfo_data, 0, sizeof(SP_DEVINFO_DATA));
@@ -389,25 +387,30 @@ BOOL hid_scan() {
     // Get the required size
     if (SetupDiGetDeviceInterfaceDetailW(device_info_set, &device_interface_data, NULL, 0, &dwSize, NULL)) {
       log_f("... unexpected successful SetupDiGetDeviceInterfaceDetailW: %lu", GetLastError());
-      goto cont;
+      continue;
     }
 
     device_interface_detail_data = (SP_DEVICE_INTERFACE_DETAIL_DATA_W *) HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, dwSize);
     if (device_interface_detail_data == NULL) {
       log_f("... failed to allocate memory of size %lu for device interface detail data: %lu", dwSize, GetLastError());
-      goto cont;
+      continue;
     }
 
     device_interface_detail_data->cbSize = sizeof(SP_DEVICE_INTERFACE_DETAIL_DATA_W);
 
+#define LOOP_CONTINUE() \
+  HeapFree(GetProcessHeap(), 0, device_interface_detail_data); \
+  device_interface_detail_data = NULL; \
+  continue
+
     if (!SetupDiGetDeviceInterfaceDetailW(device_info_set, &device_interface_data, device_interface_detail_data, dwSize, NULL, NULL)) {
       log_f("... SetupDiGetDeviceInterfaceDetailW error: %lu", GetLastError());
-      goto cont;
+      LOOP_CONTINUE();
     }
 
     if (!SetupDiEnumDeviceInfo(device_info_set, device_index, &devinfo_data)) {
       log_f("... SetupDiEnumDeviceInfo error: %lu", GetLastError());
-      goto cont;
+      LOOP_CONTINUE();
     }
 
     StringFromGUID2(&devinfo_data.ClassGuid, szGuid, 64);
@@ -415,7 +418,7 @@ BOOL hid_scan() {
 
     if (!IsEqualGUID(&hidclass_guid, &devinfo_data.ClassGuid)) {
       log_f("... Incorrect Class GUID");
-      goto cont;
+      LOOP_CONTINUE();
     }
 
     if (SetupDiGetDeviceRegistryPropertyW(device_info_set, &devinfo_data, SPDRP_CLASS, NULL, (BYTE *) &szBuffer, sizeof(szBuffer), NULL)) {
@@ -437,10 +440,7 @@ BOOL hid_scan() {
 
         LeaveCriticalSection(&crit_section);
 
-        HeapFree(GetProcessHeap(), 0, device_interface_detail_data);
-
-        res = FALSE;
-        goto end;
+        LOOP_CONTINUE();
       }
 
       hid_ctx_init(&contexts[hid_devices]);
@@ -452,21 +452,19 @@ BOOL hid_scan() {
 
     LeaveCriticalSection(&crit_section);
 
-cont:
-    if (device_interface_detail_data) {
-      HeapFree(GetProcessHeap(), 0, device_interface_detail_data);
-      device_interface_detail_data = NULL;
-    }
+    HeapFree(GetProcessHeap(), 0, device_interface_detail_data);
+    device_interface_detail_data = NULL;
 
     device_index++;
   }
 
-end:
+#undef LOOP_CONTINUE
+
   if (device_info_set != INVALID_HANDLE_VALUE) {
     SetupDiDestroyDeviceInfoList(device_info_set);
   }
 
-  return res;
+  return TRUE;
 }
 
 hid_poll_value_t hid_device_poll(struct eamio_hid_device *ctx) {
@@ -484,7 +482,7 @@ hid_poll_value_t hid_device_poll(struct eamio_hid_device *ctx) {
     if (HasOverlappedIoCompleted(&ctx->read_state)) {
       ctx->io_pending = FALSE;
 
-      log_f("read finished");
+      DEBUG_LOG("read finished");
       if (!GetOverlappedResult(ctx->dev_handle, &ctx->read_state, &ctx->read_size, FALSE)) {
         log_f("GetOverlappedResult error: %lu", GetLastError());
         return HID_POLL_ERROR;
@@ -546,7 +544,7 @@ uint8_t hid_device_read(struct eamio_hid_device *hid_ctx) {
     return HID_CARD_NONE;
   }
 
-  log_f("got report: %02x %02x %02x %02x %02x %02x %02x %02x %02x",
+  DEBUG_LOG("got report: %02x %02x %02x %02x %02x %02x %02x %02x %02x",
     hid_ctx->report_buffer[0],
     hid_ctx->report_buffer[1],
     hid_ctx->report_buffer[2],
