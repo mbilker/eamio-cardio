@@ -392,7 +392,7 @@ BOOL hid_scan() {
       goto cont;
     }
 
-    device_interface_detail_data = (SP_DEVICE_INTERFACE_DETAIL_DATA_W *) HeapAlloc(GetProcessHeap(), 0, dwSize);
+    device_interface_detail_data = (SP_DEVICE_INTERFACE_DETAIL_DATA_W *) HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, dwSize);
     if (device_interface_detail_data == NULL) {
       log_f("... failed to allocate memory of size %lu for device interface detail data: %lu", dwSize, GetLastError());
       goto cont;
@@ -431,7 +431,7 @@ BOOL hid_scan() {
     if (hid_devices == contexts_length) {
       contexts_length++;
 
-      contexts = (struct eamio_hid_device *) realloc(contexts, contexts_length * sizeof(struct eamio_hid_device));
+      contexts = (struct eamio_hid_device *) HeapReAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, contexts, contexts_length * sizeof(struct eamio_hid_device));
       if (contexts == NULL) {
         log_f("failed to reallocate memory for HID device information: %lu", GetLastError());
 
