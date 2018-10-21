@@ -116,6 +116,7 @@ INT_PTR WINAPI WinProcCallback(HWND hWnd, UINT message, WPARAM wParam, LPARAM lP
         }
 #endif
       }
+      break;
     }
 
     default:
