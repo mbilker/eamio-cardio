@@ -131,13 +131,13 @@ int thread_message_pump(void *ctx) {
   HINSTANCE hInstance;
 
   if (!InitWindowClass()) {
-    fatal_ptr("cardio", "Failed to initialize window class");
+    warning_ptr("cardio", "Failed to initialize window class");
     return -1;
   }
 
   hInstance = GetModuleHandle(NULL);
   if ((hWnd = CreateTheWindow(hInstance)) == NULL) {
-    fatal_ptr("cardio", "Failed to initialize the background window");
+    warning_ptr("cardio", "Failed to initialize the background window");
     return -1;
   }
 
@@ -145,7 +145,7 @@ int thread_message_pump(void *ctx) {
   message_pump_ready = TRUE;
 
   if (!MessagePump(hWnd)) {
-    fatal_ptr("cardio", "Message pump error");
+    warning_ptr("cardio", "Message pump error");
     return -1;
   }
 
