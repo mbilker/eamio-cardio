@@ -103,6 +103,8 @@ BOOL hid_init() {
   for (i = 0; i < contexts_length; i++) {
     hid_ctx_init(&contexts[i]);
   }
+
+  return TRUE;
 }
 
 void hid_close() {
@@ -401,6 +403,7 @@ BOOL hid_scan() {
 #define LOOP_CONTINUE() \
   HeapFree(GetProcessHeap(), 0, device_interface_detail_data); \
   device_interface_detail_data = NULL; \
+  device_index++; \
   continue
 
     if (!SetupDiGetDeviceInterfaceDetailW(device_info_set, &device_interface_data, device_interface_detail_data, dwSize, NULL, NULL)) {
