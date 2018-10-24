@@ -509,7 +509,7 @@ hid_poll_value_t hid_device_poll(struct eamio_hid_device *ctx) {
         ctx->io_pending = TRUE;
       } else {
         log_f("ReadFile error: %lu", error);
-        return FALSE;
+        return HID_POLL_ERROR;
       }
     } else {
       // The read completed right away
