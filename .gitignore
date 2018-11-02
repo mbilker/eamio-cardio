@@ -1,3 +1,6 @@
 build/**/*.o
 build/**/*.dll
 build/*.exe
+release
+bemanitools*.zip
+card-eamio*.zip
