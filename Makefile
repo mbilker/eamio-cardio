@@ -34,16 +34,19 @@ build/64/eamio.dll: build build/64/eamio.o $(SOURCES_64)
 	$(CC_64) $(CFLAGS) -shared -flto -municode -o $@ $(filter-out $<,$^) $(LDFLAGS)
 	$(STRIP) $@
 
-card-eamio.zip: build/32/eamio.dll build/64/eamio.dll
+card-eamio-r$(GIT_REVISION)_$(GIT_COMMIT).zip: build/32/eamio.dll build/64/eamio.dll
 	mkdir -p release/card-eamio/32 release/card-eamio/64
 	cp build/32/eamio.dll release/card-eamio/32/eamio.dll
 	cp build/64/eamio.dll release/card-eamio/64/eamio.dll
 	rm -f card-eamio.zip
-	(cd release; zip -r ../card-eamio.zip card-eamio)
+	(cd release; zip -r ../$@ card-eamio; cd ..)
+
+card-eamio.zip: card-eamio-r$(GIT_REVISION)_$(GIT_COMMIT).zip
+	ln -sf $< $@
 
 clean:
 	rm -f build/test_hid.exe build/32/* build/64/*
-	rm -f release/card-eamio/32/* release/card-eamio/64/* card-eamio.zip
+	rm -f release/card-eamio/32/* release/card-eamio/64/* *.zip
 	rmdir \
 		build/64 build/32 build \
 		release/card-eamio/32 release/card-eamio/64 release/card-eamio release
