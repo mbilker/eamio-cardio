@@ -37,19 +37,31 @@ int WINAPI wWinMain(HINSTANCE hInstanceExe, HINSTANCE hPrevInstance, LPWSTR lpst
   }
 
   if (hid_device_found()) {
-    /*
-    hid_poll_value_t poll_value;
-    for (int i = 0; i < 5; i++) {
-      while ((poll_value = hid_device_poll(&hid_ctx)) == HID_POLL_CARD_NOT_READY);
-      if (poll_value == HID_POLL_ERROR) {
-        printf("Error polling reader\n");
-        return 1;
-      }
+    EnterCriticalSection(&crit_section);
 
-      hid_device_read(&hid_ctx);
+    hid_poll_value_t poll_value;
+    int i = 0;
+    while (i < 5) {
+      for (int j = 0; j < contexts_length; j++) {
+        if (contexts[j].initialized) {
+          poll_value = hid_device_poll(&contexts[j]);
+
+          if (poll_value == HID_POLL_ERROR) {
+            printf("Error polling reader\n");
+            return 1;
+          }
+
+          if (poll_value == HID_POLL_CARD_READY) {
+            hid_device_read(&contexts[j]);
+            i++;
+          }
+        }
+      }
     }
+
+    LeaveCriticalSection(&crit_section);
+
     printf("program exit\n");
-    */
   } else {
     printf("HID reader not found\n");
   }
