@@ -96,7 +96,9 @@ INT_PTR WINAPI WinProcCallback(HWND hWnd, UINT message, WPARAM wParam, LPARAM lP
               hid_remove_device(pDevInf->dbcc_name);
             }
 
+#ifdef HID_DEBUG
             hid_print_contexts();
+#endif
 
             break;
           }
