@@ -38,7 +38,7 @@ card-eamio-r$(GIT_REVISION)_$(GIT_COMMIT).zip: build/32/eamio.dll build/64/eamio
 	mkdir -p release/card-eamio/32 release/card-eamio/64
 	cp build/32/eamio.dll release/card-eamio/32/eamio.dll
 	cp build/64/eamio.dll release/card-eamio/64/eamio.dll
-	rm -f card-eamio.zip
+	rm -f $@
 	(cd release; zip -r ../$@ card-eamio; cd ..)
 
 card-eamio.zip: card-eamio-r$(GIT_REVISION)_$(GIT_COMMIT).zip
