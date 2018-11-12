@@ -252,9 +252,9 @@ uint8_t DLLEXPORT eam_io_get_sensor_state(uint8_t unit_no) {
   // `MAX_NUM_OF_READERS` starts at 1, but `unit_no` is zero indexed, add 1 to `unit_no` so it
   // starts at 1.
   if (unit_no + 1 > MAX_NUM_OF_READERS) {
-    DEBUG_LOG("Max number of readers is now %u", unit_no);
-
     MAX_NUM_OF_READERS = unit_no + 1;
+
+    info_log_f("Max number of game readers found is now %u", MAX_NUM_OF_READERS);
 
     ID_TIMER = HeapReAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, ID_TIMER, MAX_NUM_OF_READERS * sizeof(struct card_timer_holder));
     if (ID_TIMER == NULL) {
