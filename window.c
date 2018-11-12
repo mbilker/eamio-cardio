@@ -115,8 +115,8 @@ INT_PTR WINAPI WinProcCallback(HWND hWnd, UINT message, WPARAM wParam, LPARAM lP
           case DBT_DEVTYP_VOLUME:
             log_f(" -> DBT_DEVTYP_VOLUME");
             break;
-        }
 #endif
+        }
       }
       break;
     }
