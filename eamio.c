@@ -23,8 +23,14 @@ int message_pump_thread;
 BOOL message_pump_ready = FALSE;
 HWND hWnd;
 
-uint8_t ID_TIMER[2] = { 0, 0 };
-uint8_t LAST_CARD_TYPE[2] = { 0, 0 };
+struct card_timer_holder {
+  size_t index;
+  uint8_t ticks;
+  uint8_t last_card_type;
+};
+
+uint8_t MAX_NUM_OF_READERS = 1;
+struct card_timer_holder *ID_TIMER = NULL;
 
 void info_log_f(const char *fmt, ...) {
   char msg[512];
@@ -32,6 +38,15 @@ void info_log_f(const char *fmt, ...) {
   va_start(args, fmt);
   vsprintf(msg, fmt, args);
   info_ptr("cardio", msg);
+  va_end(args);
+}
+
+void warning_log_f(const char *fmt, ...) {
+  char msg[512];
+  va_list args;
+  va_start(args, fmt);
+  vsprintf(msg, fmt, args);
+  warning_ptr("cardio", msg);
   va_end(args);
 }
 
@@ -83,7 +98,7 @@ static bool load_orig_eamio() {
     orig_eam_io_handle = LoadLibrary(TEXT("eamio_orig.dll"));
 
     if (orig_eam_io_handle == NULL) {
-      fatal_log_f("Failed to load eamio_orig.dll: 0x%08x", GetLastError());
+      warning_log_f("Failed to load eamio_orig.dll: 0x%08x", GetLastError());
       return 0;
     }
 
@@ -98,7 +113,7 @@ static bool load_ ## NAME() { \
   if ((super_ ## NAME) == NULL) { \
     super_ ## NAME = (super_ ## NAME ## _t) GetProcAddress(orig_eam_io_handle, #NAME); \
     if ((super_ ## NAME) == NULL) { \
-      fatal_log_f("Failed to load " #NAME " from eamio_orig.dll: %lu", GetLastError()); \
+      warning_log_f("Failed to load " #NAME " from eamio_orig.dll: %lu", GetLastError()); \
       return 0; \
     } \
     DEBUG_LOG("Loaded " #NAME " from eamio_orig.dll: %p", super_ ## NAME); \
@@ -181,6 +196,12 @@ bool DLLEXPORT eam_io_init(thread_create_t thread_create, thread_join_t thread_j
   thread_join_ptr = thread_join;
   thread_destroy_ptr = thread_destroy;
 
+  ID_TIMER = HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, MAX_NUM_OF_READERS * sizeof(struct card_timer_holder));
+  if (ID_TIMER == NULL) {
+    warning_ptr("cardio", "Failed to allocate memory for card id staging");
+    return false;
+  }
+
   hid_init();
 
   if (!hid_scan()) {
@@ -204,6 +225,8 @@ void DLLEXPORT eam_io_fini(void) {
     super_eam_io_fini();
   }
 
+  HeapFree(GetProcessHeap(), 0, ID_TIMER);
+
   EndTheWindow(hWnd);
 
   info_ptr("cardio", "Device notification thread shutting down");
@@ -221,38 +244,42 @@ uint16_t DLLEXPORT eam_io_get_keypad_state(uint8_t unit_no) {
 }
 
 uint8_t DLLEXPORT eam_io_get_sensor_state(uint8_t unit_no) {
-  bool checked_orig_eam_io = false;
   uint8_t result = 0;
-  size_t i, j;
+  size_t i;
+  struct eamio_hid_device *ctx;
+  struct card_timer_holder *id_timer;
 
-  // Disable card reading from the original eamio.dll when it returns zero
-  // from `eam_io_get_sensor_state`
-  if (orig_eam_io_handle_card_read &&
-      orig_eam_io_initialized &&
-      super_eam_io_get_sensor_state)
-  {
-    result = super_eam_io_get_sensor_state(unit_no);
+  // `MAX_NUM_OF_READERS` starts at 1, but `unit_no` is zero indexed, add 1 to `unit_no` so it
+  // starts at 1.
+  if (unit_no + 1 > MAX_NUM_OF_READERS) {
+    DEBUG_LOG("Max number of readers is now %u", unit_no);
 
-    if (result == 0) {
-      orig_eam_io_handle_card_read = false;
-      checked_orig_eam_io = true;
-    } else {
-      return result;
+    MAX_NUM_OF_READERS = unit_no + 1;
+
+    ID_TIMER = HeapReAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, ID_TIMER, MAX_NUM_OF_READERS * sizeof(struct card_timer_holder));
+    if (ID_TIMER == NULL) {
+      fatal_ptr("cardio", "Failed to reallocate memory for card id staging");
+      return 0;
     }
   }
+  id_timer = &ID_TIMER[unit_no];
 
-  EnterCriticalSection(&crit_section);
+  if (id_timer->ticks > 0) {
+    DEBUG_LOG("ID_TIMER[%u]: %u", unit_no, id_timer->ticks);
 
-  if (unit_no < contexts_length) {
-    if (ID_TIMER[unit_no]) {
-      DEBUG_LOG("ID_TIMER[%u]: %u", unit_no, ID_TIMER[unit_no]);
+    id_timer->ticks--;
+    return 3;
+  }
 
-      ID_TIMER[unit_no]--;
-      result = 3;
-    } else if (contexts[unit_no].initialized) {
-      switch (hid_device_poll(&contexts[unit_no])) {
+  EnterCriticalSection(&HID_LOCK);
+
+  for (i = unit_no; i < CONTEXTS_LENGTH; i += MAX_NUM_OF_READERS) {
+    ctx = &CONTEXTS[i];
+
+    if (ctx->initialized) {
+      switch (hid_device_poll(ctx)) {
         case HID_POLL_ERROR:
-          fatal_ptr("cardio", "Error polling device");
+          warning_ptr("cardio", "Error polling device");
           result = 0;
           break;
 
@@ -265,18 +292,23 @@ uint8_t DLLEXPORT eam_io_get_sensor_state(uint8_t unit_no) {
           break;
       }
     }
+
+    if (result != 0) {
+      break;
+    }
   }
 
-  LeaveCriticalSection(&crit_section);
+  LeaveCriticalSection(&HID_LOCK);
 
+  // Disable card reading from the original eamio.dll when it returns zero
+  // from `eam_io_get_sensor_state`
   if (result == 0 &&
-      !checked_orig_eam_io &&
+      orig_eam_io_handle_card_read &&
       orig_eam_io_initialized &&
       super_eam_io_get_sensor_state)
   {
-    orig_eam_io_handle_card_read = true;
-
-    return super_eam_io_get_sensor_state(unit_no);
+    result = super_eam_io_get_sensor_state(unit_no);
+    orig_eam_io_handle_card_read = result != 0;
   }
 
   return result;
@@ -284,55 +316,77 @@ uint8_t DLLEXPORT eam_io_get_sensor_state(uint8_t unit_no) {
 
 uint8_t DLLEXPORT eam_io_read_card(uint8_t unit_no, uint8_t *card_id, uint8_t nbytes) {
   uint8_t result = EAM_IO_CARD_NONE;
+  struct card_timer_holder *id_timer = &ID_TIMER[unit_no];
+  struct eamio_hid_device *ctx;
+  size_t i;
+
+  DEBUG_LOG("eam_io_read_card(unit_no: %u)", unit_no);
 
   if (orig_eam_io_handle_card_read && orig_eam_io_initialized && super_eam_io_read_card) {
     info_ptr("cardio", "Reading card with eamio_orig.dll");
     return super_eam_io_read_card(unit_no, card_id, nbytes);
   }
 
-  EnterCriticalSection(&crit_section);
+  EnterCriticalSection(&HID_LOCK);
 
-  if (unit_no < contexts_length && ID_TIMER[unit_no]) {
-    memcpy(card_id, contexts[unit_no].usage_value, nbytes);
-    result = LAST_CARD_TYPE[unit_no];
+  if (id_timer->ticks > 0) {
+    ctx = &CONTEXTS[id_timer->index];
+
+    memcpy(card_id, ctx->usage_value, nbytes);
+    result = id_timer->last_card_type;
+  } else {
+    // The idea here is to map excess HID readers to the modulo of the maximum number of readers
+    // the game uses, which in most cases is two.
+    for (i = unit_no; i < CONTEXTS_LENGTH; i += MAX_NUM_OF_READERS) {
+      ctx = &CONTEXTS[i];
+
+      // Skip uninitialized contexts
+      if (!ctx->initialized) {
+        continue;
+      }
+
+      uint8_t card_type = hid_device_read(ctx);
+
+      if (nbytes > sizeof(ctx->usage_value)) {
+        warning_ptr("cardio", "nbytes > buffer_size, not inserting card");
+        card_type = HID_CARD_NONE;
+      }
+
+      switch (card_type) {
+        case HID_CARD_NONE:
+          result = EAM_IO_CARD_NONE;
+          break;
+
+        case HID_CARD_ISO_15693:
+          info_ptr("cardio", "Found: EAM_IO_CARD_ISO15696");
+          result = EAM_IO_CARD_ISO15696;
+          break;
+
+        case HID_CARD_ISO_18092:
+          info_ptr("cardio", "Found: EAM_IO_CARD_FELICA");
+          result = EAM_IO_CARD_FELICA;
+          break;
+
+        default:
+          warning_log_f("cardio", "Unknown card type found: %u", card_type);
+          result = EAM_IO_CARD_NONE;
+      }
+
+      // If a card was grabbed, store the reader index in the timer structure for 32
+      // reading ticks along with the card type. The index is needed as multiple HID
+      // readers may be mapped to a single game reader unit.
+      if (result != EAM_IO_CARD_NONE) {
+        memcpy(card_id, ctx->usage_value, nbytes);
+        id_timer->index = i;
+        id_timer->ticks = 32;
+        id_timer->last_card_type = result;
+
+        break;
+      }
+    }
   }
 
-  if (unit_no < contexts_length && result == EAM_IO_CARD_NONE) {
-    uint8_t card_type = hid_device_read(&contexts[unit_no]);
-
-    if (nbytes > sizeof(contexts[unit_no].usage_value)) {
-      fatal_ptr("cardio", "nbytes > buffer_size");
-      card_type = HID_CARD_NONE;
-    }
-
-    switch (card_type) {
-      case HID_CARD_NONE:
-        result = EAM_IO_CARD_NONE;
-        break;
-
-      case HID_CARD_ISO_15693:
-        info_ptr("cardio", "Found: EAM_IO_CARD_ISO15696");
-        result = EAM_IO_CARD_ISO15696;
-        break;
-
-      case HID_CARD_ISO_18092:
-        info_ptr("cardio", "Found: EAM_IO_CARD_FELICA");
-        result = EAM_IO_CARD_FELICA;
-        break;
-
-      default:
-        warning_ptr("cardio", "Unknown card type found");
-        result = EAM_IO_CARD_NONE;
-    }
-
-    if (result != EAM_IO_CARD_NONE) {
-      memcpy(card_id, contexts[unit_no].usage_value, nbytes);
-      ID_TIMER[unit_no] = 32;
-      LAST_CARD_TYPE[unit_no] = result;
-    }
-  }
-
-  LeaveCriticalSection(&crit_section);
+  LeaveCriticalSection(&HID_LOCK);
 
   return result;
 }

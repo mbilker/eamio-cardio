@@ -5,9 +5,9 @@
 #include <stdint.h>
 #include <hidsdi.h>
 
-extern CRITICAL_SECTION crit_section;
-extern struct eamio_hid_device *contexts;
-extern size_t contexts_length;
+extern CRITICAL_SECTION HID_LOCK;
+extern struct eamio_hid_device *CONTEXTS;
+extern size_t CONTEXTS_LENGTH;
 
 struct eamio_hid_device {
   LPWSTR dev_path;

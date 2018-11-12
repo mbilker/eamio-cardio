@@ -7,8 +7,8 @@
 static BOOL hid_device_found() {
   size_t i;
 
-  for (i = 0; i < contexts_length; i++) {
-    if (contexts[i].initialized) {
+  for (i = 0; i < CONTEXTS_LENGTH; i++) {
+    if (CONTEXTS[i].initialized) {
       return TRUE;
     }
   }
@@ -37,14 +37,14 @@ int WINAPI wWinMain(HINSTANCE hInstanceExe, HINSTANCE hPrevInstance, LPWSTR lpst
   }
 
   if (hid_device_found()) {
-    EnterCriticalSection(&crit_section);
+    EnterCriticalSection(&HID_LOCK);
 
     hid_poll_value_t poll_value;
     int i = 0;
     while (i < 5) {
-      for (int j = 0; j < contexts_length; j++) {
-        if (contexts[j].initialized) {
-          poll_value = hid_device_poll(&contexts[j]);
+      for (int j = 0; j < CONTEXTS_LENGTH; j++) {
+        if (CONTEXTS[j].initialized) {
+          poll_value = hid_device_poll(&CONTEXTS[j]);
 
           if (poll_value == HID_POLL_ERROR) {
             printf("Error polling reader\n");
@@ -52,14 +52,14 @@ int WINAPI wWinMain(HINSTANCE hInstanceExe, HINSTANCE hPrevInstance, LPWSTR lpst
           }
 
           if (poll_value == HID_POLL_CARD_READY) {
-            hid_device_read(&contexts[j]);
+            hid_device_read(&CONTEXTS[j]);
             i++;
           }
         }
       }
     }
 
-    LeaveCriticalSection(&crit_section);
+    LeaveCriticalSection(&HID_LOCK);
 
     printf("program exit\n");
   } else {

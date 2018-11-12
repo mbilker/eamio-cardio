@@ -24,10 +24,10 @@
 // GUID_DEVCLASS_HIDCLASS
 GUID hidclass_guid = { 0x745a17a0, 0x74d3, 0x11d0, { 0xb6, 0xfe, 0x00, 0xa0, 0xc9, 0x0f, 0x57, 0xda } };
 
-CRITICAL_SECTION crit_section;
+CRITICAL_SECTION HID_LOCK;
 
-struct eamio_hid_device *contexts = NULL;
-size_t contexts_length = 0;
+struct eamio_hid_device *CONTEXTS = NULL;
+size_t CONTEXTS_LENGTH = 0;
 
 void hid_ctx_init(struct eamio_hid_device *ctx) {
   ctx->dev_path = NULL;
@@ -85,23 +85,21 @@ void hid_ctx_reset(struct eamio_hid_device *ctx) {
 BOOL hid_init() {
   size_t i, contexts_size;
 
-  InitializeCriticalSectionAndSpinCount(&crit_section, 0x00000400);
+  InitializeCriticalSectionAndSpinCount(&HID_LOCK, 0x00000400);
 
-  contexts_size = DEFAULT_ALLOCATED_CONTEXTS * sizeof(struct eamio_hid_device);
-  contexts = (struct eamio_hid_device *) HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, contexts_size);
-  if (contexts == NULL) {
+  CONTEXTS_LENGTH = DEFAULT_ALLOCATED_CONTEXTS;
+  CONTEXTS = (struct eamio_hid_device *) HeapAlloc(
+    GetProcessHeap(),
+    HEAP_ZERO_MEMORY,
+    CONTEXTS_LENGTH * sizeof(struct eamio_hid_device));
+
+  if (CONTEXTS == NULL) {
     log_f("failed to allocate memory to hold HID device information: %lu", GetLastError());
     return FALSE;
   }
 
-  DEBUG_LOG("contexts[0] = 0x%p", &contexts[0]);
-  DEBUG_LOG("contexts[2] = 0x%p", &contexts[2]);
-  DEBUG_LOG("contexts + sizeof = 0x%p", ((void *) contexts) + contexts_size);
-
-  contexts_length = DEFAULT_ALLOCATED_CONTEXTS;
-
-  for (i = 0; i < contexts_length; i++) {
-    hid_ctx_init(&contexts[i]);
+  for (i = 0; i < CONTEXTS_LENGTH; i++) {
+    hid_ctx_init(&CONTEXTS[i]);
   }
 
   return TRUE;
@@ -110,16 +108,16 @@ BOOL hid_init() {
 void hid_close() {
   size_t i;
 
-  if (contexts_length > 0) {
-    for (i = 0; i < contexts_length; i++) {
-      hid_ctx_free(&contexts[i]);
+  if (CONTEXTS_LENGTH > 0) {
+    for (i = 0; i < CONTEXTS_LENGTH; i++) {
+      hid_ctx_free(&CONTEXTS[i]);
     }
 
-    HeapFree(GetProcessHeap(), 0, contexts);
-    contexts = NULL;
-    contexts_length = 0;
+    HeapFree(GetProcessHeap(), 0, CONTEXTS);
+    CONTEXTS = NULL;
+    CONTEXTS_LENGTH = 0;
 
-    DeleteCriticalSection(&crit_section);
+    DeleteCriticalSection(&HID_LOCK);
   }
 }
 
@@ -141,13 +139,14 @@ void hid_print_caps(struct eamio_hid_device *hid_ctx) {
 #ifdef HID_DEBUG
 void hid_print_contexts() {
   size_t i;
+  struct eamio_hid_device *ctx;
 
-  EnterCriticalSection(&crit_section);
+  EnterCriticalSection(&HID_LOCK);
 
-  for (i = 0; i < contexts_length; i++) {
-    struct eamio_hid_device *ctx = &contexts[i];
+  for (i = 0; i < CONTEXTS_LENGTH; i++) {
+    ctx = &CONTEXTS[i];
 
-    DEBUG_LOG("contexts[%Iu] = 0x%p", i, &contexts[i]);
+    DEBUG_LOG("CONTEXTS[%Iu] = 0x%p", i, &CONTEXTS[i]);
     DEBUG_LOG("... initialized = %d", ctx->initialized);
 
     if (ctx->initialized) {
@@ -156,26 +155,51 @@ void hid_print_contexts() {
     }
   }
 
-  LeaveCriticalSection(&crit_section);
+  LeaveCriticalSection(&HID_LOCK);
 }
 #endif
 
 BOOL hid_add_device(LPCWSTR device_path) {
-  BOOL res = FALSE;
-  size_t i;
+  BOOL res = TRUE;
+  size_t free_spot, i;
 
-  EnterCriticalSection(&crit_section);
+  EnterCriticalSection(&HID_LOCK);
 
-  for (i = 0; i < contexts_length; i++) {
+  free_spot = CONTEXTS_LENGTH;
+
+  for (i = 0; i < CONTEXTS_LENGTH; i++) {
     DEBUG_LOG("hid_add_device(\"%ls\") => i: %Iu", device_path, i);
 
-    if (!contexts[i].initialized) {
-      res = hid_scan_device(&contexts[i], device_path);
+    if (!CONTEXTS[i].initialized) {
+      free_spot = i;
       break;
     }
   }
 
-  LeaveCriticalSection(&crit_section);
+  if (free_spot >= CONTEXTS_LENGTH) {
+    CONTEXTS_LENGTH++;
+    CONTEXTS = (struct eamio_hid_device *) HeapReAlloc(
+      GetProcessHeap(),
+      HEAP_ZERO_MEMORY,
+      CONTEXTS,
+      CONTEXTS_LENGTH * sizeof(struct eamio_hid_device));
+
+    if (CONTEXTS == NULL) {
+      log_f("failed to reallocate memory for HID device information: %lu", GetLastError());
+
+      res = FALSE;
+    } else {
+      hid_ctx_init(&CONTEXTS[free_spot]);
+    }
+  }
+
+  // If the memory reallocation fails, do not scan as the memory for the
+  // context is not allocated.
+  if (res == TRUE) {
+    res = hid_scan_device(&CONTEXTS[free_spot], device_path);
+  }
+
+  LeaveCriticalSection(&HID_LOCK);
 
   return res;
 }
@@ -184,22 +208,22 @@ BOOL hid_remove_device(LPCWSTR device_path) {
   BOOL res = FALSE;
   size_t i;
 
-  EnterCriticalSection(&crit_section);
+  EnterCriticalSection(&HID_LOCK);
 
-  for (i = 0; i < contexts_length; i++) {
+  for (i = 0; i < CONTEXTS_LENGTH; i++) {
     // The device paths in `hid_scan` are partially lower-case, so perform a
     // case-insensitive comparison here
-    if (contexts[i].initialized && (wcsicmp(device_path, contexts[i].dev_path) == 0)) {
+    if (CONTEXTS[i].initialized && (wcsicmp(device_path, CONTEXTS[i].dev_path) == 0)) {
       DEBUG_LOG("hid_remove_device(\"%ls\") => i: %Iu", device_path, i);
 
-      hid_ctx_reset(&contexts[i]);
+      hid_ctx_reset(&CONTEXTS[i]);
 
       res = TRUE;
       break;
     }
   }
 
-  LeaveCriticalSection(&crit_section);
+  LeaveCriticalSection(&HID_LOCK);
 
   return res;
 }
@@ -359,8 +383,6 @@ BOOL hid_scan() {
   DWORD device_index = 0;
   DWORD dwSize = 0;
 
-  size_t hid_devices = 0;
-
   HidD_GetHidGuid(&hid_guid);
   StringFromGUID2(&hid_guid, szGuid, 64);
   log_f("HID guid: %ls", szGuid);
@@ -432,28 +454,7 @@ BOOL hid_scan() {
       log_f("... Device Description: %ls", szBuffer);
     }
 
-    EnterCriticalSection(&crit_section);
-
-    if (hid_devices == contexts_length) {
-      contexts_length++;
-
-      contexts = (struct eamio_hid_device *) HeapReAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, contexts, contexts_length * sizeof(struct eamio_hid_device));
-      if (contexts == NULL) {
-        log_f("failed to reallocate memory for HID device information: %lu", GetLastError());
-
-        LeaveCriticalSection(&crit_section);
-
-        LOOP_CONTINUE();
-      }
-
-      hid_ctx_init(&contexts[hid_devices]);
-    }
-
-    if (hid_scan_device(&contexts[hid_devices], device_interface_detail_data->DevicePath)) {
-      hid_devices++;
-    }
-
-    LeaveCriticalSection(&crit_section);
+    hid_add_device(device_interface_detail_data->DevicePath);
 
     HeapFree(GetProcessHeap(), 0, device_interface_detail_data);
     device_interface_detail_data = NULL;
