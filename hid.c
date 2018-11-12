@@ -12,7 +12,7 @@
 #ifdef HID_DEBUG
 #define DEBUG_LOG(MSG, ...) log_f("[DEBUG] " MSG, ##__VA_ARGS__)
 #else
-#define DEBUG_LOG
+#define DEBUG_LOG(MSG, ...)
 #endif
 
 #define DEFAULT_ALLOCATED_CONTEXTS 2
@@ -83,7 +83,7 @@ void hid_ctx_reset(struct eamio_hid_device *ctx) {
 }
 
 BOOL hid_init() {
-  size_t i, contexts_size;
+  size_t i;
 
   InitializeCriticalSectionAndSpinCount(&HID_LOCK, 0x00000400);
 
@@ -94,7 +94,7 @@ BOOL hid_init() {
     CONTEXTS_LENGTH * sizeof(struct eamio_hid_device));
 
   if (CONTEXTS == NULL) {
-    log_f("failed to allocate memory to hold HID device information: %lu", GetLastError());
+    log_f("Failed to allocate memory to hold HID device information: %08lx", GetLastError());
     return FALSE;
   }
 
@@ -124,15 +124,15 @@ void hid_close() {
 void hid_print_caps(struct eamio_hid_device *hid_ctx) {
 #define VPRINT(KEY, VALUE) log_f("... " #KEY ": %u", VALUE)
   VPRINT(InputReportByteLength,     hid_ctx->caps.InputReportByteLength);
-  VPRINT(OutputReportByteLength,    hid_ctx->caps.OutputReportByteLength);
-  VPRINT(FeatureReportByteLength,   hid_ctx->caps.FeatureReportByteLength);
-  VPRINT(NumberLinkCollectionNodes, hid_ctx->caps.NumberLinkCollectionNodes);
+  //VPRINT(OutputReportByteLength,    hid_ctx->caps.OutputReportByteLength);
+  //VPRINT(FeatureReportByteLength,   hid_ctx->caps.FeatureReportByteLength);
+  //VPRINT(NumberLinkCollectionNodes, hid_ctx->caps.NumberLinkCollectionNodes);
   VPRINT(NumberInputValueCaps,      hid_ctx->caps.NumberInputValueCaps);
   VPRINT(NumberInputDataIndices,    hid_ctx->caps.NumberInputDataIndices);
-  VPRINT(NumberOutputValueCaps,     hid_ctx->caps.NumberOutputValueCaps);
-  VPRINT(NumberOutputDataIndices,   hid_ctx->caps.NumberOutputDataIndices);
-  VPRINT(NumberFeatureValueCaps,    hid_ctx->caps.NumberFeatureValueCaps);
-  VPRINT(NumberFeatureDataIndices,  hid_ctx->caps.NumberFeatureDataIndices);
+  //VPRINT(NumberOutputValueCaps,     hid_ctx->caps.NumberOutputValueCaps);
+  //VPRINT(NumberOutputDataIndices,   hid_ctx->caps.NumberOutputDataIndices);
+  //VPRINT(NumberFeatureValueCaps,    hid_ctx->caps.NumberFeatureValueCaps);
+  //VPRINT(NumberFeatureDataIndices,  hid_ctx->caps.NumberFeatureDataIndices);
 #undef VPRINT
 }
 
@@ -185,7 +185,9 @@ BOOL hid_add_device(LPCWSTR device_path) {
       CONTEXTS_LENGTH * sizeof(struct eamio_hid_device));
 
     if (CONTEXTS == NULL) {
-      log_f("failed to reallocate memory for HID device information: %lu", GetLastError());
+      log_f("Failed to reallocate memory for HID device information: %08lx: %ls",
+        GetLastError(),
+        device_path);
 
       res = FALSE;
     } else {
@@ -197,6 +199,11 @@ BOOL hid_add_device(LPCWSTR device_path) {
   // context is not allocated.
   if (res == TRUE) {
     res = hid_scan_device(&CONTEXTS[free_spot], device_path);
+
+    // Reset context if device scan failed
+    if (res == FALSE) {
+      hid_ctx_reset(&CONTEXTS[free_spot]);
+    }
   }
 
   LeaveCriticalSection(&HID_LOCK);
@@ -232,18 +239,22 @@ BOOL hid_remove_device(LPCWSTR device_path) {
  * Scan HID device to see if it is a HID reader
  */
 BOOL hid_scan_device(struct eamio_hid_device *ctx, LPCWSTR device_path) {
-  size_t i, dev_path_size;
+  size_t dev_path_size;
   NTSTATUS res;
-  DWORD error = 0;
-  DWORD length = 0;
-  LPWSTR pBuffer = NULL;
+
+#ifdef HID_DEBUG
+  size_t i;
+#endif
 
   dev_path_size = (wcslen(device_path) + 1) * sizeof(WCHAR);
   DEBUG_LOG("hid_scan_device(\"%ls\") => dev_path_size: %Iu", device_path, dev_path_size);
 
   ctx->dev_path = (LPWSTR) HeapAlloc(GetProcessHeap(), 0, dev_path_size);
   if (ctx->dev_path == NULL) {
-    log_f("... failed to allocate memory for device path: %lu", GetLastError());
+    log_f("Failed to allocate memory for dev node string copy: %08lx: %ls",
+      GetLastError(),
+      device_path);
+
     return FALSE;
   }
 
@@ -252,7 +263,7 @@ BOOL hid_scan_device(struct eamio_hid_device *ctx, LPCWSTR device_path) {
   memcpy(ctx->dev_path, device_path, dev_path_size);
   ctx->dev_path[dev_path_size - 1] = '\0';
 
-  log_f("... DevicePath = %ls", ctx->dev_path);
+  //log_f("... DevicePath = %ls", ctx->dev_path);
   ctx->dev_handle = CreateFileW(
     ctx->dev_path,
     GENERIC_READ | GENERIC_WRITE,
@@ -261,28 +272,9 @@ BOOL hid_scan_device(struct eamio_hid_device *ctx, LPCWSTR device_path) {
     OPEN_EXISTING,
     FILE_FLAG_OVERLAPPED,
     NULL);
-  if (ctx->dev_handle == INVALID_HANDLE_VALUE) {
-    error = GetLastError();
-    length = FormatMessage(
-      FORMAT_MESSAGE_ALLOCATE_BUFFER |
-      FORMAT_MESSAGE_FROM_SYSTEM |
-      FORMAT_MESSAGE_IGNORE_INSERTS |
-      FORMAT_MESSAGE_MAX_WIDTH_MASK,
-      NULL,
-      error,
-      MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT),
-      (LPWSTR) &pBuffer,
-      0,
-      NULL);
-    if (length) {
-      // Remove space at the end
-      pBuffer[length - 1] = '\0';
 
-      log_f("... CreateFileW error: %lu (%ls)", error, pBuffer);
-      LocalFree(pBuffer);
-    } else {
-      log_f("... CreateFileW error: %lu, FormatMessage error: %lu", error, GetLastError());
-    }
+  if (ctx->dev_handle == INVALID_HANDLE_VALUE) {
+    log_f("Initial CreateFileW failed: %08lx: %ls", GetLastError(), ctx->dev_path);
 
     HeapFree(GetProcessHeap(), 0, ctx->dev_path);
     ctx->dev_path = NULL;
@@ -291,77 +283,89 @@ BOOL hid_scan_device(struct eamio_hid_device *ctx, LPCWSTR device_path) {
     return FALSE;
   }
 
-  DEBUG_LOG("before HidD_GetPreparsedData");
+  //DEBUG_LOG("before HidD_GetPreparsedData");
   if (!HidD_GetPreparsedData(ctx->dev_handle, &ctx->pp_data)) {
-    log_f("... HidD_GetPreparsedData error: %lu", GetLastError());
-    goto end;
+    log_f("HidD_GetPreparsedData failed: %08lx: %ls", GetLastError(), ctx->dev_path);
+    return FALSE;
   }
-  DEBUG_LOG("after HidD_GetPreparsedData");
+  //DEBUG_LOG("after HidD_GetPreparsedData");
 
   res = HidP_GetCaps(ctx->pp_data, &ctx->caps);
   if (res != HIDP_STATUS_SUCCESS) {
-    log_f("... HidP_GetCaps error: 0x%08lx", res);
-    goto end;
+    log_f("HidP_GetCaps failed: %08lx: %ls", res, ctx->dev_path);
+    return FALSE;
   }
-  log_f("... Top-Level Usage: %u, Usage Page: 0x%04x",
-    ctx->caps.Usage,
-    ctx->caps.UsagePage);
-
   // 0xffca is the card reader usage page ID
   if (ctx->caps.UsagePage != CARD_READER_USAGE_PAGE) {
-    log_f("... Incorrect usage page");
-    goto end;
+    log_f("Skipping HID device with incorrect usage page: %ls", ctx->dev_path);
+    return FALSE;
   } else if (ctx->caps.NumberInputValueCaps == 0) {
-    log_f("... No value caps");
-    goto end;
+    log_f("Skipping HID device with no value capabilities: %ls", ctx->dev_path);
+    return FALSE;
   }
-
-  hid_print_caps(ctx);
 
   DEBUG_LOG("hid_scan_device(\"%ls\") => collection size: %Iu", ctx->dev_path, ctx->caps.NumberInputValueCaps * sizeof(HIDP_VALUE_CAPS));
   ctx->collection_length = ctx->caps.NumberInputValueCaps;
-  ctx->collection = (HIDP_VALUE_CAPS *) HeapAlloc(GetProcessHeap(), 0, ctx->collection_length * sizeof(HIDP_VALUE_CAPS));
+  ctx->collection = (HIDP_VALUE_CAPS *) HeapAlloc(
+    GetProcessHeap(),
+    0,
+    ctx->collection_length * sizeof(HIDP_VALUE_CAPS));
+
   if (ctx->collection == NULL) {
-    log_f("... failed to allocate memory for HID Value Capabilities: %lu", GetLastError());
-    goto end;
+    log_f("Failed to allocate memory for HID Value Capabilities: %08lx: %ls",
+      GetLastError(),
+      ctx->dev_path);
+
+    return FALSE;
   }
+
   res = HidP_GetValueCaps(
     HidP_Input,
     ctx->collection,
     &ctx->collection_length,
     ctx->pp_data);
+
   if (res != HIDP_STATUS_SUCCESS) {
-    log_f("... HidP_GetLinkCollectionNodes error: 0x%08lx", res);
-    goto end;
+    log_f("HidP_GetLinkCollectionNodes failed: %08lx: %ls",
+      res,
+      ctx->dev_path);
+
+    return FALSE;
   }
 
+  log_f("Initializing HID reader on dev node %ls:", ctx->dev_path);
+  log_f("... Device top-level usage: %u", ctx->caps.Usage);
+  log_f("... Device usage page: 0x%04x", ctx->caps.UsagePage);
+
+  hid_print_caps(ctx);
+
+
+#ifdef HID_DEBUG
   for (i = 0; i < ctx->collection_length; i++) {
     HIDP_VALUE_CAPS *item = &ctx->collection[i];
     log_f("... collection[%Iu]", i);
     log_f("...   UsagePage = 0x%04x", item->UsagePage);
     log_f("...   ReportID = %u", item->ReportID);
-    log_f("...   IsAlias = %u", item->IsAlias);
-    log_f("...   LinkUsage = %u", item->LinkUsage);
-    log_f("...   IsRange = %u", item->IsRange);
-    log_f("...   IsAbsolute = %u", item->IsAbsolute);
-    log_f("...   BitSize = %u", item->BitSize);
-    log_f("...   ReportCount = %u", item->ReportCount);
+    //log_f("...   IsAlias = %u", item->IsAlias);
+    //log_f("...   LinkUsage = %u", item->LinkUsage);
+    //log_f("...   IsRange = %u", item->IsRange);
+    //log_f("...   IsAbsolute = %u", item->IsAbsolute);
+    //log_f("...   BitSize = %u", item->BitSize);
+    //log_f("...   ReportCount = %u", item->ReportCount);
 
     if (!item->IsRange) {
-      log_f("...   collection[%Iu].NotRange:", i);
-      log_f("...     Usage = 0x%x", item->NotRange.Usage);
-      log_f("...     DataIndex = %u", item->NotRange.DataIndex);
+      //log_f("...   collection[%Iu].NotRange:", i);
+      //log_f("...     Usage = 0x%x", item->NotRange.Usage);
+      //log_f("...     DataIndex = %u", item->NotRange.DataIndex);
+      log_f("...   Usage = 0x%x", item->NotRange.Usage);
+      log_f("...   DataIndex = %u", item->NotRange.DataIndex);
     }
   }
+#endif
 
   ctx->initialized = TRUE;
 
   return TRUE;
-
-end:
-  hid_ctx_reset(ctx);
-
-  return FALSE;
 }
 
 /*
@@ -377,24 +381,24 @@ BOOL hid_scan() {
   SP_DEVICE_INTERFACE_DETAIL_DATA_W *device_interface_detail_data = NULL;
   HDEVINFO device_info_set = (HDEVINFO) INVALID_HANDLE_VALUE;
   GUID hid_guid;
-  DWORD dwPropertyRegDataType;
-  wchar_t szBuffer[1024];
+  //DWORD dwPropertyRegDataType;
+  //wchar_t szBuffer[1024];
   wchar_t szGuid[64] = { 0 };
   DWORD device_index = 0;
   DWORD dwSize = 0;
 
   HidD_GetHidGuid(&hid_guid);
   StringFromGUID2(&hid_guid, szGuid, 64);
-  log_f("HID guid: %ls", szGuid);
+  //log_f("HID guid: %ls", szGuid);
 
   StringFromGUID2(&hidclass_guid, szGuid, 64);
-  log_f("HIDClass guid: %ls", szGuid);
+  //log_f("HIDClass guid: %ls", szGuid);
 
   // HID collection opening needs `DIGCF_DEVICEINTERFACE` and ignore
   // disconnected devices
   device_info_set = SetupDiGetClassDevs(&hid_guid, NULL, NULL, DIGCF_PRESENT | DIGCF_DEVICEINTERFACE);
   if (device_info_set == INVALID_HANDLE_VALUE) {
-    log_f("SetupDiGetClassDevs error: %lu", GetLastError());
+    log_f("SetupDiGetClassDevs failed: %08lx", GetLastError());
 
     return FALSE;
   }
@@ -406,17 +410,24 @@ BOOL hid_scan() {
   // `SetupDiEnumDeviceInterfaces` must come before `SetupDiEnumDeviceInfo`
   // else `SetupDiEnumDeviceInterfaces` will fail with error 259
   while (SetupDiEnumDeviceInterfaces(device_info_set, NULL, &hid_guid, device_index, &device_interface_data)) {
-    log_f("device_index: %lu", device_index);
+    //log_f("device_index: %lu", device_index);
 
     // Get the required size
     if (SetupDiGetDeviceInterfaceDetailW(device_info_set, &device_interface_data, NULL, 0, &dwSize, NULL)) {
-      log_f("... unexpected successful SetupDiGetDeviceInterfaceDetailW: %lu", GetLastError());
+      log_f("Initial SetupDiGetDeviceInterfaceDetailW failed: %08lx for device index %lu",
+        GetLastError(),
+        device_index);
+
       continue;
     }
 
     device_interface_detail_data = (SP_DEVICE_INTERFACE_DETAIL_DATA_W *) HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, dwSize);
     if (device_interface_detail_data == NULL) {
-      log_f("... failed to allocate memory of size %lu for device interface detail data: %lu", dwSize, GetLastError());
+      log_f("Failed to allocate memory of size %lu for device interface detail data: %08lx for device index %lu",
+        dwSize,
+        GetLastError(),
+        device_index);
+
       continue;
     }
 
@@ -429,23 +440,30 @@ BOOL hid_scan() {
   continue
 
     if (!SetupDiGetDeviceInterfaceDetailW(device_info_set, &device_interface_data, device_interface_detail_data, dwSize, NULL, NULL)) {
-      log_f("... SetupDiGetDeviceInterfaceDetailW error: %lu", GetLastError());
+      log_f("Second SetupDiGetDeviceInterfaceDetailW failed: %08lx for device index %lu",
+        GetLastError(),
+        device_index);
+
       LOOP_CONTINUE();
     }
 
     if (!SetupDiEnumDeviceInfo(device_info_set, device_index, &devinfo_data)) {
-      log_f("... SetupDiEnumDeviceInfo error: %lu", GetLastError());
+      log_f("SetupDiEnumDeviceInfo failed: %08lx: %ls",
+        GetLastError(),
+        device_interface_detail_data->DevicePath);
+
       LOOP_CONTINUE();
     }
-
-    StringFromGUID2(&devinfo_data.ClassGuid, szGuid, 64);
-    log_f("... Class GUID: %ls", szGuid);
 
     if (!IsEqualGUID(&hidclass_guid, &devinfo_data.ClassGuid)) {
-      log_f("... Incorrect Class GUID");
+      log_f("Skipping HID device with incorrect class GUID: %ls", device_interface_detail_data->DevicePath);
       LOOP_CONTINUE();
     }
 
+    //StringFromGUID2(&devinfo_data.ClassGuid, szGuid, 64);
+    //log_f("... Class GUID: %ls", szGuid);
+
+    /*
     if (SetupDiGetDeviceRegistryPropertyW(device_info_set, &devinfo_data, SPDRP_CLASS, NULL, (BYTE *) &szBuffer, sizeof(szBuffer), NULL)) {
       log_f("... Driver Name: %ls", szBuffer);
     }
@@ -453,6 +471,7 @@ BOOL hid_scan() {
     if (SetupDiGetDeviceRegistryPropertyW(device_info_set, &devinfo_data, SPDRP_DEVICEDESC, &dwPropertyRegDataType, (BYTE *) &szBuffer, sizeof(szBuffer), &dwSize)) {
       log_f("... Device Description: %ls", szBuffer);
     }
+    */
 
     hid_add_device(device_interface_detail_data->DevicePath);
 
@@ -486,9 +505,8 @@ hid_poll_value_t hid_device_poll(struct eamio_hid_device *ctx) {
     if (HasOverlappedIoCompleted(&ctx->read_state)) {
       ctx->io_pending = FALSE;
 
-      DEBUG_LOG("read finished");
       if (!GetOverlappedResult(ctx->dev_handle, &ctx->read_state, &ctx->read_size, FALSE)) {
-        log_f("GetOverlappedResult error: %lu", GetLastError());
+        log_f("Card ID reading with GetOverlappedResult error: %08lx", GetLastError());
         return HID_POLL_ERROR;
       }
 
@@ -509,7 +527,7 @@ hid_poll_value_t hid_device_poll(struct eamio_hid_device *ctx) {
       if (error == ERROR_IO_PENDING) {
         ctx->io_pending = TRUE;
       } else {
-        log_f("ReadFile error: %lu", error);
+        log_f("Card ID reading with ReadFile failed: %08lx", error);
         return HID_POLL_ERROR;
       }
     } else {
@@ -531,7 +549,6 @@ static const char *hid_card_type_name(hid_card_type_t card_type) {
 }
 
 uint8_t hid_device_read(struct eamio_hid_device *hid_ctx) {
-  DWORD error = 0;
   NTSTATUS res;
 
   int i = 0;
@@ -544,20 +561,9 @@ uint8_t hid_device_read(struct eamio_hid_device *hid_ctx) {
     return HID_CARD_NONE;
   }
   if (hid_ctx->read_size == 0) {
-    log_f("not enough bytes read, dwSize = %lu", hid_ctx->read_size);
+    log_f("Not enough bytes read: %lu", hid_ctx->read_size);
     return HID_CARD_NONE;
   }
-
-  DEBUG_LOG("got report: %02x %02x %02x %02x %02x %02x %02x %02x %02x",
-    hid_ctx->report_buffer[0],
-    hid_ctx->report_buffer[1],
-    hid_ctx->report_buffer[2],
-    hid_ctx->report_buffer[3],
-    hid_ctx->report_buffer[4],
-    hid_ctx->report_buffer[5],
-    hid_ctx->report_buffer[6],
-    hid_ctx->report_buffer[7],
-    hid_ctx->report_buffer[8]);
 
   for (i = 0; i < hid_ctx->collection_length; i++) {
     HIDP_VALUE_CAPS *item = &hid_ctx->collection[i];
@@ -598,5 +604,18 @@ uint8_t hid_device_read(struct eamio_hid_device *hid_ctx) {
 
     return item->NotRange.Usage;
   }
+
+  DEBUG_LOG("Got report for unknown usage: %02x %02x %02x %02x %02x %02x %02x %02x %02x",
+    hid_ctx->report_buffer[0],
+    hid_ctx->report_buffer[1],
+    hid_ctx->report_buffer[2],
+    hid_ctx->report_buffer[3],
+    hid_ctx->report_buffer[4],
+    hid_ctx->report_buffer[5],
+    hid_ctx->report_buffer[6],
+    hid_ctx->report_buffer[7],
+    hid_ctx->report_buffer[8]);
+
+  return HID_CARD_NONE;
 }
 

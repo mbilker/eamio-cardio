@@ -20,11 +20,11 @@ BOOL RegisterGuid(HWND hWnd, HDEVNOTIFY *hDeviceNotify) {
   HidD_GetHidGuid(&notification_filter.dbcc_classguid);
 
   *hDeviceNotify = RegisterDeviceNotificationW(hWnd, &notification_filter, DEVICE_NOTIFY_WINDOW_HANDLE);
-  if (*hDeviceNotify = NULL) {
-    log_f("RegisterDeviceNotification error: %lu", GetLastError());
+  if (*hDeviceNotify == NULL) {
+    log_f("Background hotplug window RegisterDeviceNotification failed: %08lx", GetLastError());
     return FALSE;
   }
-  log_f("RegisterDeviceNotification successful");
+  //log_f("RegisterDeviceNotification successful");
 
   return TRUE;
 }
@@ -37,11 +37,11 @@ INT_PTR WINAPI WinProcCallback(HWND hWnd, UINT message, WPARAM wParam, LPARAM lP
   switch (message) {
     case WM_CREATE:
       if (!RegisterGuid(hWnd, &hDeviceNotify)) {
-        log_f("RegisterGuid error: %lu", GetLastError());
+        log_f("Background hotplug RegisterGuid failed: %08lx", GetLastError());
         lRet = 0;
         return lRet;
       }
-      log_f("RegisterGuid successful");
+      //log_f("RegisterGuid successful");
       break;
 
     case WM_CLOSE:
@@ -50,10 +50,10 @@ INT_PTR WINAPI WinProcCallback(HWND hWnd, UINT message, WPARAM wParam, LPARAM lP
 
         // The hanlde may be invalid by this point
         if (error != ERROR_INVALID_HANDLE) {
-          log_f("UnregisterDeviceNotification error: %lu", error);
+          log_f("Background hotplug window UnregisterDeviceNotification failed: %08lx", error);
         }
-      } else {
-        log_f("UnregisterDeviceNotification successful");
+      //} else {
+        //log_f("UnregisterDeviceNotification successful");
       }
       DestroyWindow(hWnd);
       break;
@@ -146,10 +146,10 @@ BOOL InitWindowClass() {
   wnd_class.hIconSm = NULL;
 
   if (!RegisterClassEx(&wnd_class)) {
-    log_f("RegisterClassEx error: %lu", GetLastError());
+    log_f("Background hotplug window RegisterClassEx failed: %08lx", GetLastError());
     return FALSE;
   }
-  log_f("RegisterClassEx successful");
+  //log_f("RegisterClassEx successful");
 
   return TRUE;
 }
@@ -168,10 +168,10 @@ HWND CreateTheWindow(HINSTANCE hInstance) {
       NULL);
 
   if (hWnd == NULL) {
-    log_f("CreateWindowEx error: %lu", GetLastError());
+    log_f("Background hotplug window CreateWindowEx failed: %08lx", GetLastError());
     return NULL;
   }
-  log_f("CreateWindowEx successful");
+  //log_f("CreateWindowEx successful");
 
   return hWnd;
 }
@@ -182,7 +182,7 @@ BOOL MessagePump(HWND hWnd) {
 
   while (run_message_pump && ((ret_val = GetMessage(&msg, hWnd, 0, 0)) != 0)) {
     if (ret_val == -1) {
-      log_f("GetMessage error: %lu", GetLastError());
+      log_f("Background hotplug window GetMessage failed: %08lx", GetLastError());
       return FALSE;
     } else {
       TranslateMessage(&msg);

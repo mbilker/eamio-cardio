@@ -60,9 +60,9 @@ void fatal_log_f(const char *fmt, ...) {
 }
 
 #ifdef EAMIO_DEBUG
-#define DEBUG_LOG info_log_f
+#define DEBUG_LOG(MSG, ...) info_log_f("[DEBUG] " MSG, ##__VA_ARGS__)
 #else
-#define DEBUG_LOG
+#define DEBUG_LOG(MSG, ...)
 #endif
 
 typedef void (*super_eam_io_set_loggers_t)(log_formatter_t, log_formatter_t, log_formatter_t, log_formatter_t);
@@ -98,7 +98,7 @@ static bool load_orig_eamio() {
     orig_eam_io_handle = LoadLibrary(TEXT("eamio_orig.dll"));
 
     if (orig_eam_io_handle == NULL) {
-      warning_log_f("Failed to load eamio_orig.dll: 0x%08x", GetLastError());
+      warning_log_f("Failed to load eamio_orig.dll: %08lx", GetLastError());
       return 0;
     }
 
@@ -113,7 +113,7 @@ static bool load_ ## NAME() { \
   if ((super_ ## NAME) == NULL) { \
     super_ ## NAME = (super_ ## NAME ## _t) GetProcAddress(orig_eam_io_handle, #NAME); \
     if ((super_ ## NAME) == NULL) { \
-      warning_log_f("Failed to load " #NAME " from eamio_orig.dll: %lu", GetLastError()); \
+      warning_log_f("Failed to load " #NAME " from eamio_orig.dll: %08lx", GetLastError()); \
       return 0; \
     } \
     DEBUG_LOG("Loaded " #NAME " from eamio_orig.dll: %p", super_ ## NAME); \
