@@ -303,7 +303,6 @@ uint8_t DLLEXPORT eam_io_get_sensor_state(uint8_t unit_no) {
   // Disable card reading from the original eamio.dll when it returns zero
   // from `eam_io_get_sensor_state`
   if (result == 0 &&
-      orig_eam_io_handle_card_read &&
       orig_eam_io_initialized &&
       super_eam_io_get_sensor_state)
   {
