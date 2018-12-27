@@ -45,8 +45,9 @@ card-eamio.zip: card-eamio-r$(GIT_REVISION)_$(GIT_COMMIT).zip
 	ln -sf $< $@
 
 clean:
+	rm -f card-eamio.zip card-eamio-r$(GIT_REVISION)_$(GIT_COMMIT).zip
 	rm -f build/test_hid.exe build/32/* build/64/*
-	rm -f release/card-eamio/32/* release/card-eamio/64/* *.zip
+	rm -f release/card-eamio/32/* release/card-eamio/64/*
 	rmdir \
 		build/64 build/32 build \
 		release/card-eamio/32 release/card-eamio/64 release/card-eamio release
