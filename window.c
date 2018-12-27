@@ -1,3 +1,32 @@
+/*
+ * Copyright 2018 Matt Bilker <me@mbilker.us>
+ * All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions are met:
+ *
+ * 1. Redistributions of source code must retain the above copyright notice,
+ *    this list of conditions and the following disclaimer.
+ * 2. Redistributions in binary form must reproduce the above copyright
+ *    notice, this list of conditions and the following disclaimer in the
+ *    documentation and/or other materials provided with the distribution.
+ * 3. Neither the name of the copyright holder nor the names of its
+ *    contributors may be used to endorse or promote products derived from
+ *    this software without specific prior written permission.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+ * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+ * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+ * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE
+ * LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+ * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+ * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+ * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+ * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+ * POSSIBILITY OF SUCH DAMAGE.
+ */
+
 #include <windows.h>
 #include <stdio.h>
 #include <strsafe.h>
@@ -8,7 +37,7 @@
 #include "log.h"
 #include "window.h"
 
-BOOL run_message_pump = TRUE;
+BOOL RUN_MESSAGE_PUMP = TRUE;
 
 BOOL RegisterGuid(HWND hWnd, HDEVNOTIFY *hDeviceNotify) {
   DEV_BROADCAST_DEVICEINTERFACE notification_filter;
@@ -48,7 +77,7 @@ INT_PTR WINAPI WinProcCallback(HWND hWnd, UINT message, WPARAM wParam, LPARAM lP
       if (!UnregisterDeviceNotification(hDeviceNotify)) {
         DWORD error = GetLastError();
 
-        // The hanlde may be invalid by this point
+        // The handle may be invalid by this point
         if (error != ERROR_INVALID_HANDLE) {
           log_f("Background hotplug window UnregisterDeviceNotification failed: %08lx", error);
         }
@@ -88,10 +117,10 @@ INT_PTR WINAPI WinProcCallback(HWND hWnd, UINT message, WPARAM wParam, LPARAM lP
           case DBT_DEVTYP_DEVICEINTERFACE:
           {
             PDEV_BROADCAST_DEVICEINTERFACE pDevInf = (PDEV_BROADCAST_DEVICEINTERFACE) pHdr;
-            log_f(" -> DBT_DEVTYP_DEVICEINTERFACE => name: %ls", pDevInf->dbcc_name);
+            //log_f(" -> DBT_DEVTYP_DEVICEINTERFACE => name: %ls", pDevInf->dbcc_name);
 
             if (wParam == DBT_DEVICEARRIVAL && hid_add_device(pDevInf->dbcc_name)) {
-              log_f("HID reader found");
+              log_f("HID reader found: %ls", pDevInf->dbcc_name);
             } else {
               hid_remove_device(pDevInf->dbcc_name);
             }
@@ -180,7 +209,7 @@ BOOL MessagePump(HWND hWnd) {
   MSG msg;
   int ret_val;
 
-  while (run_message_pump && ((ret_val = GetMessage(&msg, hWnd, 0, 0)) != 0)) {
+  while (RUN_MESSAGE_PUMP && ((ret_val = GetMessage(&msg, hWnd, 0, 0)) != 0)) {
     if (ret_val == -1) {
       log_f("Background hotplug window GetMessage failed: %08lx", GetLastError());
       return FALSE;
@@ -194,7 +223,7 @@ BOOL MessagePump(HWND hWnd) {
 }
 
 BOOL EndTheWindow(HWND hWnd) {
-  run_message_pump = FALSE;
+  RUN_MESSAGE_PUMP = FALSE;
 
   return PostMessage(hWnd, WM_CLOSE, 0, 0);
 }
