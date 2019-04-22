@@ -52,18 +52,6 @@ clean:
 		build/64 build/32 build \
 		release/card-eamio/32 release/card-eamio/64 release/card-eamio release
 
-build/32/eamio.o: eamio.c
-	$(CC) $(CFLAGS) -Wno-format-security -s -flto \
-		-DGIT_REVISION=\"$(GIT_REVISION)\" \
-		-DGIT_COMMIT=\"$(GIT_COMMIT)\" \
-		-c -o $@ $<
-
-build/64/eamio.o: eamio.c
-	$(CC_64) $(CFLAGS) -Wno-format-security -s -flto \
-		-DGIT_REVISION=\"$(GIT_REVISION)\" \
-		-DGIT_COMMIT=\"$(GIT_COMMIT)\" \
-		-c -o $@ $<
-
 build/32/%.o: %.c
 	$(CC) $(CFLAGS) -s -flto -municode \
 		-DGIT_REVISION=\"$(GIT_REVISION)\" \
